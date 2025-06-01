@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +11,9 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { FileText, Search, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import MoleculeViewer2D from "@/components/MoleculeViewer2D";
+import MoleculeViewer3D from "@/components/MoleculeViewer3D";
+import ProteinViewer3D from "@/components/ProteinViewer3D";
 
 const Index = () => {
   const [ligandSmiles, setLigandSmiles] = useState('');
@@ -27,13 +29,13 @@ const Index = () => {
     { id: 'tnf-alpha', name: 'TNF-α (Tumor Necrosis Factor)', description: 'Pro-inflammatory cytokine' },
   ];
 
-  const validateSmiles = (smiles: string) => {
-    // Basic SMILES validation
+  // Helper function for SMILES validation
+  function validateSmiles(smiles: string) {
     const smilesPattern = /^[A-Za-z0-9@+\-\[\]()=#$/\\%.]+$/;
     return smilesPattern.test(smiles) && smiles.length > 0;
-  };
+  }
 
-  const handlePredict = () => {
+  function handlePredict() {
     if (!ligandSmiles || (!receptorType && !customFasta)) {
       toast({
         title: "Missing Input",
@@ -138,21 +140,17 @@ const Index = () => {
 
                 {ligandSmiles && (
                   <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
-                    <h4 className="font-semibold text-gray-800 mb-2">Ligand Preview</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-white p-4 rounded border h-32 flex items-center justify-center text-gray-500">
-                        2D Structure Visualization
-                        <br />
-                        <small>(RDKit integration pending)</small>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        <div><strong>SMILES:</strong> {ligandSmiles}</div>
-                        <div><strong>Status:</strong> 
-                          <Badge variant={validateSmiles(ligandSmiles) ? "default" : "destructive"} className="ml-2">
-                            {validateSmiles(ligandSmiles) ? "Valid" : "Invalid"}
-                          </Badge>
-                        </div>
-                        <div><strong>Length:</strong> {ligandSmiles.length} characters</div>
+                    <h4 className="font-semibold text-gray-800 mb-4">Ligand Visualization</h4>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <MoleculeViewer2D smiles={ligandSmiles} />
+                      <MoleculeViewer3D smiles={ligandSmiles} />
+                    </div>
+                    <div className="mt-4 flex gap-2 text-sm">
+                      <div><strong>SMILES:</strong> {ligandSmiles}</div>
+                      <div><strong>Status:</strong> 
+                        <Badge variant={validateSmiles(ligandSmiles) ? "default" : "destructive"} className="ml-2">
+                          {validateSmiles(ligandSmiles) ? "Valid" : "Invalid"}
+                        </Badge>
                       </div>
                     </div>
                   </div>
@@ -215,28 +213,25 @@ const Index = () => {
 
                 {(receptorType || customFasta) && (
                   <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
-                    <h4 className="font-semibold text-gray-800 mb-2">Receptor Preview</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-white p-4 rounded border h-32 flex items-center justify-center text-gray-500">
-                        3D Structure Visualization
-                        <br />
-                        <small>(AlphaFold/py3Dmol integration pending)</small>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        {receptorType && (
-                          <>
-                            <div><strong>Receptor:</strong> {popularReceptors.find(r => r.id === receptorType)?.name}</div>
-                            <div><strong>Type:</strong> Interleukin</div>
-                            <div><strong>Source:</strong> Pre-computed</div>
-                          </>
-                        )}
-                        {customFasta && (
-                          <>
-                            <div><strong>Length:</strong> {customFasta.length} characters</div>
-                            <div><strong>Type:</strong> Custom FASTA</div>
-                          </>
-                        )}
-                      </div>
+                    <h4 className="font-semibold text-gray-800 mb-4">Receptor Visualization</h4>
+                    <ProteinViewer3D 
+                      receptorType={receptorType} 
+                      fastaSequence={customFasta}
+                      height={350}
+                    />
+                    <div className="mt-4 space-y-2 text-sm">
+                      {receptorType && (
+                        <>
+                          <div><strong>Receptor:</strong> {popularReceptors.find(r => r.id === receptorType)?.name}</div>
+                          <div><strong>Source:</strong> AlphaFold Database</div>
+                        </>
+                      )}
+                      {customFasta && (
+                        <>
+                          <div><strong>Length:</strong> {customFasta.replace(/^>.*\n/, '').replace(/\n/g, '').length} residues</div>
+                          <div><strong>Type:</strong> Custom FASTA</div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -396,20 +391,20 @@ const Index = () => {
                       </Card>
                     </div>
 
-                    {/* Optional Docking Visualization Placeholder */}
+                    {/* 3D Binding Pose Visualization */}
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-lg">3D Binding Pose</CardTitle>
                         <CardDescription>
-                          Predicted ligand-receptor complex (visualization pending)
+                          Predicted ligand-receptor complex visualization
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="h-64 bg-gray-100 rounded border flex items-center justify-center text-gray-500">
-                          3D Molecular Visualization
-                          <br />
-                          <small>(py3Dmol/NGLView integration pending)</small>
-                        </div>
+                        <MoleculeViewer3D 
+                          smiles={ligandSmiles}
+                          title="Ligand-Receptor Complex"
+                          height={350}
+                        />
                       </CardContent>
                     </Card>
                   </div>
