@@ -15,6 +15,7 @@ import MoleculeViewer2D from "@/components/MoleculeViewer2D";
 import MoleculeViewer3D from "@/components/MoleculeViewer3D";
 import ProteinViewer3D from "@/components/ProteinViewer3D";
 import BindingPose2D from "@/components/BindingPose2D";
+import BatchLigandInput from "@/components/BatchLigandInput";
 
 const Index = () => {
   const [ligandSmiles, setLigandSmiles] = useState('');
