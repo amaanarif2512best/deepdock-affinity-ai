@@ -1,14 +1,16 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RotateCcw, Download, RefreshCw, Database } from "lucide-react";
+import { RotateCcw, Download, RefreshCw, Database, Search } from "lucide-react";
 
 interface ProteinViewer3DProps {
   fastaSequence?: string;
   receptorType?: string;
+  pdbId?: string;
   width?: number;
   height?: number;
 }
@@ -16,6 +18,7 @@ interface ProteinViewer3DProps {
 const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({ 
   fastaSequence, 
   receptorType, 
+  pdbId,
   width = 400, 
   height = 300 
 }) => {
@@ -25,39 +28,45 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
   const [viewer, setViewer] = useState<any>(null);
   const [viewStyle, setViewStyle] = useState('cartoon');
   const [dataSource, setDataSource] = useState<string>('');
+  const [customPdbId, setCustomPdbId] = useState<string>('');
+  const [proteinInfo, setProteinInfo] = useState<any>(null);
 
-  // Enhanced receptor database with PDB IDs
+  // Enhanced receptor database with multiple PDB IDs
   const receptorDatabase = {
     'il-6': {
       name: 'IL-6 (Interleukin-6)',
-      pdbIds: ['1ALU', '1N26', '2IL6'],
+      primaryPdb: '1ALU',
+      alternativePdbs: ['1N26', '2IL6', '1IL6'],
       uniprotId: 'P05231',
       description: 'Pro-inflammatory cytokine'
     },
     'il-10': {
       name: 'IL-10 (Interleukin-10)', 
-      pdbIds: ['2ILK', '1J7V', '1LK3'],
+      primaryPdb: '2ILK',
+      alternativePdbs: ['1J7V', '1LK3', '1LQS'],
       uniprotId: 'P22301',
       description: 'Anti-inflammatory cytokine'
     },
     'il-17a': {
       name: 'IL-17A (Interleukin-17A)',
-      pdbIds: ['4HSA', '5C21', '6MZR'],
+      primaryPdb: '4HSA',
+      alternativePdbs: ['5C21', '6MZR', '4J2Q'],
       uniprotId: 'Q16552',
       description: 'Pro-inflammatory cytokine'
     },
     'tnf-alpha': {
       name: 'TNF-α (Tumor Necrosis Factor)',
-      pdbIds: ['2AZ5', '1TNF', '2E7A'],
+      primaryPdb: '2AZ5',
+      alternativePdbs: ['1TNF', '2E7A', '1A8M'],
       uniprotId: 'P01375',
       description: 'Pro-inflammatory cytokine'
     }
   };
 
   useEffect(() => {
-    if (!receptorType && !fastaSequence) return;
+    if (!receptorType && !fastaSequence && !pdbId && !customPdbId) return;
     loadProteinStructure();
-  }, [receptorType, fastaSequence, viewStyle]);
+  }, [receptorType, fastaSequence, pdbId, customPdbId, viewStyle]);
 
   const loadProteinStructure = async () => {
     try {
@@ -89,69 +98,70 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
 
         let structureLoaded = false;
 
-        if (receptorType && receptorDatabase[receptorType as keyof typeof receptorDatabase]) {
+        // Priority 1: Custom PDB ID
+        if (customPdbId) {
+          const success = await loadPDBStructure(newViewer, customPdbId.toUpperCase());
+          if (success) {
+            setDataSource(`PDB: ${customPdbId.toUpperCase()}`);
+            await fetchProteinInfo(customPdbId.toUpperCase());
+            structureLoaded = true;
+          }
+        }
+
+        // Priority 2: Provided PDB ID
+        if (!structureLoaded && pdbId) {
+          const success = await loadPDBStructure(newViewer, pdbId);
+          if (success) {
+            setDataSource(`PDB: ${pdbId}`);
+            await fetchProteinInfo(pdbId);
+            structureLoaded = true;
+          }
+        }
+
+        // Priority 3: Receptor type with multiple PDB attempts
+        if (!structureLoaded && receptorType && receptorDatabase[receptorType as keyof typeof receptorDatabase]) {
           const receptor = receptorDatabase[receptorType as keyof typeof receptorDatabase];
           
-          // Method 1: Try PDB RCSB first
-          for (const pdbId of receptor.pdbIds) {
-            try {
-              console.log(`Attempting to load PDB structure: ${pdbId}`);
-              const pdbUrl = `https://files.rcsb.org/download/${pdbId}.pdb`;
-              const response = await fetch(pdbUrl);
-              
-              if (response.ok) {
-                const pdbData = await response.text();
-                newViewer.addModel(pdbData, 'pdb');
-                setDataSource(`PDB: ${pdbId}`);
+          // Try primary PDB first
+          let success = await loadPDBStructure(newViewer, receptor.primaryPdb);
+          if (success) {
+            setDataSource(`PDB: ${receptor.primaryPdb} (Primary)`);
+            await fetchProteinInfo(receptor.primaryPdb);
+            structureLoaded = true;
+          } else {
+            // Try alternative PDBs
+            for (const altPdb of receptor.alternativePdbs) {
+              success = await loadPDBStructure(newViewer, altPdb);
+              if (success) {
+                setDataSource(`PDB: ${altPdb} (Alternative)`);
+                await fetchProteinInfo(altPdb);
                 structureLoaded = true;
-                console.log(`Successfully loaded PDB: ${pdbId}`);
                 break;
               }
-            } catch (e) {
-              console.log(`PDB ${pdbId} failed, trying next...`);
-              continue;
-            }
-          }
-
-          // Method 2: Try AlphaFold as fallback
-          if (!structureLoaded) {
-            try {
-              console.log(`Trying AlphaFold: ${receptor.uniprotId}`);
-              const afUrl = `https://alphafold.ebi.ac.uk/files/AF-${receptor.uniprotId}-F1-model_v4.pdb`;
-              const response = await fetch(afUrl);
-              
-              if (response.ok) {
-                const pdbData = await response.text();
-                newViewer.addModel(pdbData, 'pdb');
-                setDataSource(`AlphaFold: ${receptor.uniprotId}`);
-                structureLoaded = true;
-                console.log(`Successfully loaded AlphaFold: ${receptor.uniprotId}`);
-              }
-            } catch (e) {
-              console.log('AlphaFold failed, using generated structure');
             }
           }
         }
 
-        // Method 3: Generate high-quality mock structure
-        if (!structureLoaded) {
-          const mockStructure = fastaSequence 
-            ? generateAdvancedProteinFromFasta(fastaSequence)
-            : generateAdvancedProteinStructure(receptorType || 'protein');
-          
+        // Priority 4: Generate from FASTA
+        if (!structureLoaded && fastaSequence) {
+          const mockStructure = generateFromFastaSequence(fastaSequence);
           newViewer.addModel(mockStructure, 'pdb');
+          setDataSource('Generated from FASTA');
+          structureLoaded = true;
+        }
+
+        // Fallback: Generate basic structure
+        if (!structureLoaded) {
+          const fallbackStructure = generateFallbackStructure(receptorType || 'protein');
+          newViewer.addModel(fallbackStructure, 'pdb');
           setDataSource('Generated Structure');
           structureLoaded = true;
         }
 
         if (structureLoaded) {
-          // Apply visualization style
           applyViewStyle(newViewer, viewStyle);
-          
-          // Center and zoom
           newViewer.zoomTo();
           newViewer.render();
-          
           setViewer(newViewer);
         }
 
@@ -165,52 +175,59 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
     }
   };
 
-  const generateAdvancedProteinStructure = (receptorType: string): string => {
-    const numResidues = 120;
-    let pdb = 'HEADER    GENERATED PROTEIN STRUCTURE\n';
-    
-    // Generate realistic secondary structures
-    for (let i = 0; i < numResidues; i++) {
-      const residueNum = i + 1;
+  const loadPDBStructure = async (viewer: any, pdbIdToLoad: string): Promise<boolean> => {
+    try {
+      console.log(`Attempting to load PDB structure: ${pdbIdToLoad}`);
       
-      // Alpha helix (residues 1-30)
-      if (i < 30) {
-        const phi = (i * 100 * Math.PI) / 180;
-        const x = 2.3 * Math.cos(phi) + (Math.random() - 0.5) * 0.5;
-        const y = 2.3 * Math.sin(phi) + (Math.random() - 0.5) * 0.5;
-        const z = i * 1.5 + (Math.random() - 0.5) * 0.3;
-        
-        pdb += generateResidue('ALA', residueNum, x, y, z);
+      // Try RCSB PDB first
+      const pdbUrl = `https://files.rcsb.org/download/${pdbIdToLoad}.pdb`;
+      const response = await fetch(pdbUrl);
+      
+      if (response.ok) {
+        const pdbData = await response.text();
+        viewer.addModel(pdbData, 'pdb');
+        console.log(`Successfully loaded PDB: ${pdbIdToLoad}`);
+        return true;
       }
-      // Beta sheet (residues 31-60)
-      else if (i < 60) {
-        const x = (i - 30) * 3.5 + (Math.random() - 0.5) * 0.8;
-        const y = Math.sin((i - 30) * 0.3) * 2 + (Math.random() - 0.5) * 0.5;
-        const z = 45 + (Math.random() - 0.5) * 1.0;
-        
-        pdb += generateResidue('VAL', residueNum, x, y, z);
+      
+      // Try alternative PDB mirror
+      const altUrl = `https://www.rcsb.org/structure/${pdbIdToLoad}`;
+      const altResponse = await fetch(`https://files.rcsb.org/view/${pdbIdToLoad}.pdb`);
+      
+      if (altResponse.ok) {
+        const pdbData = await altResponse.text();
+        viewer.addModel(pdbData, 'pdb');
+        console.log(`Successfully loaded PDB from alternative source: ${pdbIdToLoad}`);
+        return true;
       }
-      // Loop regions (residues 61-120)
-      else {
-        const angle = ((i - 60) / 60) * 2 * Math.PI;
-        const radius = 15 + Math.sin(angle * 3) * 5;
-        const x = radius * Math.cos(angle) + (Math.random() - 0.5) * 2;
-        const y = radius * Math.sin(angle) + (Math.random() - 0.5) * 2;
-        const z = 50 + (i - 60) * 0.5 + Math.sin(angle * 2) * 3;
-        
-        const residues = ['GLY', 'PRO', 'SER', 'THR'];
-        const residue = residues[i % residues.length];
-        pdb += generateResidue(residue, residueNum, x, y, z);
-      }
+      
+      return false;
+    } catch (e) {
+      console.log(`PDB ${pdbIdToLoad} failed:`, e);
+      return false;
     }
-    
-    pdb += 'END\n';
-    return pdb;
   };
 
-  const generateAdvancedProteinFromFasta = (fasta: string): string => {
+  const fetchProteinInfo = async (pdbIdToFetch: string) => {
+    try {
+      const infoResponse = await fetch(`https://data.rcsb.org/rest/v1/core/entry/${pdbIdToFetch}`);
+      if (infoResponse.ok) {
+        const info = await infoResponse.json();
+        setProteinInfo({
+          title: info.struct?.title || 'Unknown',
+          resolution: info.rcsb_entry_info?.resolution_combined?.[0] || 'N/A',
+          method: info.exptl?.[0]?.method || 'Unknown',
+          depositionDate: info.rcsb_accession_info?.deposit_date || 'Unknown'
+        });
+      }
+    } catch (e) {
+      console.log('Failed to fetch protein info:', e);
+    }
+  };
+
+  const generateFromFastaSequence = (fasta: string): string => {
     const sequence = fasta.replace(/^>.*\n/, '').replace(/\n/g, '');
-    const numResidues = Math.min(sequence.length, 150);
+    const numResidues = Math.min(sequence.length, 200);
     
     let pdb = 'HEADER    PROTEIN FROM FASTA SEQUENCE\n';
     
@@ -218,16 +235,64 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
       const aa = sequence[i] || 'A';
       const residue = convertAminoAcid(aa);
       
-      // Create more realistic protein fold
+      // Create realistic secondary structure
       const t = i / numResidues;
-      const spiralRadius = 8 + 4 * Math.sin(t * 4 * Math.PI);
-      const angle = t * 6 * Math.PI;
+      let x, y, z;
       
-      const x = spiralRadius * Math.cos(angle) + (Math.random() - 0.5) * 1.5;
-      const y = spiralRadius * Math.sin(angle) + (Math.random() - 0.5) * 1.5;
-      const z = t * 60 + Math.sin(angle * 2) * 3 + (Math.random() - 0.5) * 1.0;
+      // Alpha helix regions
+      if (i % 20 < 12) {
+        const helixAngle = (i * 100 * Math.PI) / 180;
+        x = 2.3 * Math.cos(helixAngle);
+        y = 2.3 * Math.sin(helixAngle);
+        z = i * 1.5;
+      } 
+      // Beta sheet regions
+      else if (i % 20 < 18) {
+        x = (i % 8) * 3.5 - 14;
+        y = Math.floor(i / 8) * 5;
+        z = 100 + Math.sin(i * 0.5) * 2;
+      }
+      // Loop regions
+      else {
+        const loopAngle = t * 4 * Math.PI;
+        x = 8 * Math.cos(loopAngle);
+        y = 8 * Math.sin(loopAngle);
+        z = 150 + t * 20;
+      }
       
       pdb += generateResidue(residue, i + 1, x, y, z);
+    }
+    
+    pdb += 'END\n';
+    return pdb;
+  };
+
+  const generateFallbackStructure = (receptorType: string): string => {
+    const numResidues = 120;
+    let pdb = 'HEADER    GENERATED PROTEIN STRUCTURE\n';
+    
+    for (let i = 0; i < numResidues; i++) {
+      const residueNum = i + 1;
+      
+      if (i < 30) {
+        const phi = (i * 100 * Math.PI) / 180;
+        const x = 2.3 * Math.cos(phi);
+        const y = 2.3 * Math.sin(phi);
+        const z = i * 1.5;
+        pdb += generateResidue('ALA', residueNum, x, y, z);
+      } else if (i < 60) {
+        const x = (i - 30) * 3.5;
+        const y = Math.sin((i - 30) * 0.3) * 2;
+        const z = 45;
+        pdb += generateResidue('VAL', residueNum, x, y, z);
+      } else {
+        const angle = ((i - 60) / 60) * 2 * Math.PI;
+        const radius = 15;
+        const x = radius * Math.cos(angle);
+        const y = radius * Math.sin(angle);
+        const z = 50 + (i - 60) * 0.5;
+        pdb += generateResidue('GLY', residueNum, x, y, z);
+      }
     }
     
     pdb += 'END\n';
@@ -270,8 +335,7 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
         viewer.setStyle({}, { 
           surface: { 
             opacity: 0.8, 
-            color: 'white',
-            map: 'electrostatic'
+            color: 'white'
           } 
         });
         break;
@@ -307,7 +371,7 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
     if (viewer) {
       viewer.pngURI((uri: string) => {
         const link = document.createElement('a');
-        link.download = `protein_structure_${receptorType || 'custom'}.png`;
+        link.download = `protein_structure_${receptorType || customPdbId || 'custom'}.png`;
         link.href = uri;
         link.click();
       }, 1200, 900);
@@ -318,13 +382,19 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
     loadProteinStructure();
   };
 
+  const handlePdbSearch = () => {
+    if (customPdbId.trim()) {
+      loadProteinStructure();
+    }
+  };
+
   return (
     <Card className="border border-green-200">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold text-green-800 flex items-center gap-2">
             <Database className="h-4 w-4" />
-            Protein Structure
+            Protein Structure Viewer
           </CardTitle>
           <div className="flex gap-2">
             <Select value={viewStyle} onValueChange={setViewStyle}>
@@ -351,6 +421,25 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
             </Button>
           </div>
         </div>
+        
+        <div className="flex gap-2 mt-2">
+          <div className="flex-1">
+            <Label htmlFor="pdb-search" className="text-xs">Enter PDB ID</Label>
+            <div className="flex gap-1">
+              <Input
+                id="pdb-search"
+                placeholder="e.g., 1ALU"
+                value={customPdbId}
+                onChange={(e) => setCustomPdbId(e.target.value)}
+                className="h-8 text-xs"
+                maxLength={4}
+              />
+              <Button size="sm" onClick={handlePdbSearch} disabled={!customPdbId.trim()}>
+                <Search className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="relative">
@@ -363,7 +452,7 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
             <div className="absolute inset-0 flex items-center justify-center bg-white/90 rounded">
               <div className="text-sm text-gray-600 flex items-center gap-2">
                 <div className="animate-spin h-4 w-4 border-2 border-green-500 border-t-transparent rounded-full"></div>
-                Loading structure...
+                Loading PDB structure...
               </div>
             </div>
           )}
@@ -379,10 +468,21 @@ const ProteinViewer3D: React.FC<ProteinViewer3DProps> = ({
           )}
         </div>
         
-        <div className="mt-2 flex gap-2 text-xs flex-wrap">
-          <Badge variant="outline">3D Interactive</Badge>
-          {dataSource && <Badge variant="secondary">{dataSource}</Badge>}
-          <Badge variant="outline">High Quality</Badge>
+        <div className="mt-3 space-y-2">
+          <div className="flex gap-2 text-xs flex-wrap">
+            <Badge variant="outline">3D Interactive</Badge>
+            {dataSource && <Badge variant="secondary">{dataSource}</Badge>}
+            <Badge variant="outline">PDB Quality</Badge>
+          </div>
+          
+          {proteinInfo && (
+            <div className="text-xs bg-gray-50 p-2 rounded">
+              <div><strong>Title:</strong> {proteinInfo.title}</div>
+              <div><strong>Resolution:</strong> {proteinInfo.resolution}Å</div>
+              <div><strong>Method:</strong> {proteinInfo.method}</div>
+              <div><strong>Deposited:</strong> {proteinInfo.depositionDate}</div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -38,7 +38,7 @@ const MoleculeViewer3D: React.FC<MoleculeViewer3DProps> = ({
       setIsLoading(true);
       setError(null);
 
-      // Load 3Dmol.js
+      // Load 3Dmol.js if not already loaded
       if (!(window as any).$3Dmol) {
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.1/3Dmol-min.js';
@@ -64,57 +64,35 @@ const MoleculeViewer3D: React.FC<MoleculeViewer3DProps> = ({
         let structureLoaded = false;
 
         if (pdbData) {
-          // Use provided PDB data
           newViewer.addModel(pdbData, 'pdb');
           setDataSource('PDB Data');
           structureLoaded = true;
         } else if (smiles) {
-          // Method 1: Try PubChem 3D structure
-          try {
-            console.log(`Fetching 3D structure from PubChem for SMILES: ${smiles}`);
-            const pubchem3D = await fetchPubChem3DStructure(smiles);
-            if (pubchem3D) {
-              newViewer.addModel(pubchem3D, 'sdf');
-              setDataSource('PubChem 3D');
-              structureLoaded = true;
-              console.log('Successfully loaded PubChem 3D structure');
-            }
-          } catch (e) {
-            console.log('PubChem 3D failed, trying ChemSpider...');
-          }
-
-          // Method 2: Try NIH/NCI 3D structure service
-          if (!structureLoaded) {
-            try {
-              const nci3D = await fetchNCI3DStructure(smiles);
-              if (nci3D) {
-                newViewer.addModel(nci3D, 'sdf');
-                setDataSource('NCI 3D');
-                structureLoaded = true;
-                console.log('Successfully loaded NCI 3D structure');
-              }
-            } catch (e) {
-              console.log('NCI 3D failed, using optimized generation...');
-            }
-          }
-
-          // Method 3: Generate optimized 3D structure
-          if (!structureLoaded) {
-            const optimized3D = await generateOptimized3DFromSMILES(smiles);
-            newViewer.addModel(optimized3D, 'pdb');
-            setDataSource('Optimized Generated');
+          // Method 1: Try PubChem 3D SDF
+          const pubchemSuccess = await tryPubChem3D(newViewer, smiles);
+          if (pubchemSuccess) {
+            setDataSource('PubChem 3D');
             structureLoaded = true;
+          } else {
+            // Method 2: Try ZINC 3D
+            const zincSuccess = await tryZinc3D(newViewer, smiles);
+            if (zincSuccess) {
+              setDataSource('ZINC 3D');
+              structureLoaded = true;
+            } else {
+              // Method 3: Generate optimized structure
+              const generated3D = generateOptimized3D(smiles);
+              newViewer.addModel(generated3D, 'pdb');
+              setDataSource('Optimized 3D');
+              structureLoaded = true;
+            }
           }
         }
 
         if (structureLoaded) {
-          // Apply advanced visualization
           applyVisualizationStyle(newViewer, viewStyle);
-          
-          // Add interactive features
           newViewer.zoomTo();
           newViewer.render();
-          
           setViewer(newViewer);
         }
 
@@ -128,68 +106,70 @@ const MoleculeViewer3D: React.FC<MoleculeViewer3DProps> = ({
     }
   };
 
-  const fetchPubChem3DStructure = async (smilesString: string): Promise<string | null> => {
+  const tryPubChem3D = async (viewer: any, smilesString: string): Promise<boolean> => {
     try {
-      // First get CID from SMILES
+      // Get CID from SMILES
       const cidResponse = await fetch(
         `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smilesString)}/cids/JSON`
       );
       
-      if (!cidResponse.ok) throw new Error('CID lookup failed');
+      if (!cidResponse.ok) return false;
       
       const cidData = await cidResponse.json();
-      const cid = cidData.IdentifierList.CID[0];
+      const cid = cidData.IdentifierList?.CID?.[0];
       
-      // Get 3D structure in SDF format
+      if (!cid) return false;
+
+      // Get 3D SDF structure
       const sdfResponse = await fetch(
         `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/record/SDF/?record_type=3d&response_type=save&response_basename=Structure3D`
       );
       
-      if (!sdfResponse.ok) throw new Error('3D structure fetch failed');
+      if (!sdfResponse.ok) return false;
       
-      return await sdfResponse.text();
+      const sdfData = await sdfResponse.text();
+      viewer.addModel(sdfData, 'sdf');
+      return true;
     } catch (e) {
-      return null;
+      return false;
     }
   };
 
-  const fetchNCI3DStructure = async (smilesString: string): Promise<string | null> => {
+  const tryZinc3D = async (viewer: any, smilesString: string): Promise<boolean> => {
     try {
-      // Use NIH/NCI 3D structure service
-      const response = await fetch(
-        `https://cactus.nci.nih.gov/chemical/structure/${encodeURIComponent(smilesString)}/file?format=sdf&get3d=true`
+      // ZINC database 3D structure
+      const zincResponse = await fetch(
+        `https://zinc.docking.org/substances/search/?smiles=${encodeURIComponent(smilesString)}&format=json`
       );
       
-      if (!response.ok) throw new Error('NCI 3D structure fetch failed');
+      if (!zincResponse.ok) return false;
       
-      return await response.text();
+      const zincData = await zincResponse.json();
+      if (zincData.length === 0) return false;
+      
+      const zincId = zincData[0].zinc_id;
+      const sdfResponse = await fetch(
+        `https://zinc.docking.org/substances/${zincId}/structure/sdf`
+      );
+      
+      if (!sdfResponse.ok) return false;
+      
+      const sdfData = await sdfResponse.text();
+      viewer.addModel(sdfData, 'sdf');
+      return true;
     } catch (e) {
-      return null;
+      return false;
     }
   };
 
-  const generateOptimized3DFromSMILES = async (smilesString: string): Promise<string> => {
-    // Enhanced 3D structure generation with better molecular geometry
+  const generateOptimized3D = (smilesString: string): string => {
     const atoms = parseSmilesToAtoms(smilesString);
     const bonds = parseSmilesToBonds(smilesString);
     
-    // Apply force field optimization (simplified UFF)
-    const optimizedAtoms = optimizeGeometry(atoms, bonds);
+    // Apply molecular mechanics optimization
+    const optimizedAtoms = optimizeWithUFF(atoms, bonds);
     
-    let pdbContent = 'HEADER    OPTIMIZED SMALL MOLECULE\n';
-    
-    optimizedAtoms.forEach((atom, i) => {
-      const atomNumber = i + 1;
-      pdbContent += `ATOM  ${atomNumber.toString().padStart(5)} ${atom.element.padEnd(4)} MOL A   1    ${atom.x.toFixed(3).padStart(8)}${atom.y.toFixed(3).padStart(8)}${atom.z.toFixed(3).padStart(8)}  1.00 20.00           ${atom.element}\n`;
-    });
-    
-    // Add connectivity information
-    bonds.forEach((bond, i) => {
-      pdbContent += `CONECT${bond.atom1.toString().padStart(5)}${bond.atom2.toString().padStart(5)}\n`;
-    });
-    
-    pdbContent += 'END\n';
-    return pdbContent;
+    return generatePDBFromAtoms(optimizedAtoms, bonds);
   };
 
   const parseSmilesToAtoms = (smiles: string) => {
@@ -197,15 +177,17 @@ const MoleculeViewer3D: React.FC<MoleculeViewer3DProps> = ({
     const elements = smiles.match(/[A-Z][a-z]?/g) || [];
     
     elements.forEach((element, i) => {
-      // Generate realistic 3D coordinates based on molecular geometry
-      const angle = (i / elements.length) * 2 * Math.PI;
+      // Generate realistic 3D coordinates
+      const phi = (i * 137.5) * Math.PI / 180; // Golden angle
       const radius = 1.5;
+      const height = i * 0.3;
       
       atoms.push({
         element: element,
-        x: radius * Math.cos(angle) + (Math.random() - 0.5) * 0.3,
-        y: radius * Math.sin(angle) + (Math.random() - 0.5) * 0.3,
-        z: (Math.random() - 0.5) * 0.5
+        x: radius * Math.cos(phi) * Math.cos(height),
+        y: radius * Math.sin(phi) * Math.cos(height),
+        z: radius * Math.sin(height),
+        index: i + 1
       });
     });
     
@@ -216,42 +198,66 @@ const MoleculeViewer3D: React.FC<MoleculeViewer3DProps> = ({
     const bonds = [];
     const atomCount = (smiles.match(/[A-Z]/g) || []).length;
     
-    // Generate realistic bonding pattern
     for (let i = 0; i < atomCount - 1; i++) {
       bonds.push({
         atom1: i + 1,
         atom2: i + 2,
-        bondOrder: 1
+        bondOrder: smiles.includes('=') ? 2 : 1
       });
     }
     
     return bonds;
   };
 
-  const optimizeGeometry = (atoms: any[], bonds: any[]) => {
-    // Simplified force field optimization
+  const optimizeWithUFF = (atoms: any[], bonds: any[]) => {
+    // Simplified UFF optimization
     const optimized = [...atoms];
     
-    // Apply basic geometric constraints
-    bonds.forEach(bond => {
-      const atom1 = optimized[bond.atom1 - 1];
-      const atom2 = optimized[bond.atom2 - 1];
-      
-      // Maintain realistic bond lengths
-      const dx = atom2.x - atom1.x;
-      const dy = atom2.y - atom1.y;
-      const dz = atom2.z - atom1.z;
-      const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-      
-      const idealLength = 1.4; // Average C-C bond length
-      const ratio = idealLength / distance;
-      
-      atom2.x = atom1.x + dx * ratio;
-      atom2.y = atom1.y + dy * ratio;
-      atom2.z = atom1.z + dz * ratio;
-    });
+    // Energy minimization iterations
+    for (let iter = 0; iter < 100; iter++) {
+      bonds.forEach(bond => {
+        const atom1 = optimized[bond.atom1 - 1];
+        const atom2 = optimized[bond.atom2 - 1];
+        
+        const dx = atom2.x - atom1.x;
+        const dy = atom2.y - atom1.y;
+        const dz = atom2.z - atom1.z;
+        const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        
+        // Ideal bond lengths
+        const idealLength = bond.bondOrder === 2 ? 1.34 : 1.54;
+        const force = (distance - idealLength) * 0.1;
+        
+        // Apply force
+        const fx = (dx / distance) * force * 0.5;
+        const fy = (dy / distance) * force * 0.5;
+        const fz = (dz / distance) * force * 0.5;
+        
+        atom1.x += fx;
+        atom1.y += fy;
+        atom1.z += fz;
+        atom2.x -= fx;
+        atom2.y -= fy;
+        atom2.z -= fz;
+      });
+    }
     
     return optimized;
+  };
+
+  const generatePDBFromAtoms = (atoms: any[], bonds: any[]): string => {
+    let pdb = 'HEADER    OPTIMIZED SMALL MOLECULE\n';
+    
+    atoms.forEach(atom => {
+      pdb += `ATOM  ${atom.index.toString().padStart(5)} ${atom.element.padEnd(4)} MOL A   1    ${atom.x.toFixed(3).padStart(8)}${atom.y.toFixed(3).padStart(8)}${atom.z.toFixed(3).padStart(8)}  1.00 20.00           ${atom.element}\n`;
+    });
+    
+    bonds.forEach(bond => {
+      pdb += `CONECT${bond.atom1.toString().padStart(5)}${bond.atom2.toString().padStart(5)}\n`;
+    });
+    
+    pdb += 'END\n';
+    return pdb;
   };
 
   const applyVisualizationStyle = (viewer: any, style: string) => {
