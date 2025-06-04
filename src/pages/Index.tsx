@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +17,8 @@ import ProteinViewer3D from "@/components/ProteinViewer3D";
 import BindingPose2D from "@/components/BindingPose2D";
 import BatchLigandInput from "@/components/BatchLigandInput";
 import { predictBindingAffinity, calculateMolecularDescriptors } from "@/utils/molecularUtils";
+import DockingPredictionEngine from "@/components/DockingPredictionEngine";
+import Advanced3DViewer from "@/components/Advanced3DViewer";
 
 const Index = () => {
   const [ligandSmiles, setLigandSmiles] = useState('');
@@ -29,6 +30,8 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [batchMode, setBatchMode] = useState(false);
   const [currentBatchResults, setCurrentBatchResults] = useState<any[]>([]);
+  const [dockingResults, setDockingResults] = useState<any>(null);
+  const [showAdvancedViewer, setShowAdvancedViewer] = useState(false);
 
   const popularReceptors = [
     { id: 'il-6', name: 'IL-6 (Interleukin-6)', description: 'Pro-inflammatory cytokine', pdbId: '1ALU' },
@@ -128,6 +131,17 @@ const Index = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleDockingComplete = (results: any) => {
+    setDockingResults(results);
+    setAffinityResult(results.bindingAffinity);
+    setShowAdvancedViewer(true);
+    
+    toast({
+      title: "Professional Docking Complete",
+      description: `Advanced prediction complete with ${results.confidence}% confidence`,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-white">
       {/* Header */}
@@ -166,7 +180,7 @@ const Index = () => {
               🧬 Protein Target
             </TabsTrigger>
             <TabsTrigger value="predict" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              ⚙️ Prediction Engine
+              ⚙️ Docking Engine
             </TabsTrigger>
             <TabsTrigger value="results" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
               📊 Analysis Results
@@ -333,26 +347,30 @@ const Index = () => {
                       pdbId={customPdbId}
                       height={350}
                     />
-                    <div className="mt-4 space-y-2 text-sm bg-white p-3 rounded border">
-                      {receptorType && (
-                        <>
-                          <div><strong>Target:</strong> {popularReceptors.find(r => r.id === receptorType)?.name}</div>
-                          <div><strong>Source:</strong> PDB Database (Primary)</div>
-                          <div><strong>PDB ID:</strong> {popularReceptors.find(r => r.id === receptorType)?.pdbId}</div>
-                        </>
-                      )}
-                      {customPdbId && (
-                        <>
-                          <div><strong>PDB ID:</strong> {customPdbId}</div>
-                          <div><strong>Source:</strong> RCSB PDB Direct Access</div>
-                        </>
-                      )}
-                      {customFasta && (
-                        <>
-                          <div><strong>Length:</strong> {customFasta.replace(/^>.*\n/, '').replace(/\n/g, '').length} residues</div>
-                          <div><strong>Type:</strong> Custom FASTA Analysis</div>
-                        </>
-                      )}
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="bg-white p-3 rounded border">
+                        <strong>Target:</strong> {receptorType 
+                          ? popularReceptors.find(r => r.id === receptorType)?.name 
+                          : customPdbId
+                            ? `PDB Structure: ${customPdbId}`
+                            : customFasta 
+                              ? "Custom FASTA sequence"
+                              : "No target selected"
+                        }
+                      </div>
+                      <div className="bg-white p-3 rounded border">
+                        <strong>Source:</strong>
+                        <div className="text-gray-600 mt-1">
+                          {receptorType 
+                            ? "PDB Database (Primary)"
+                            : customPdbId 
+                              ? "RCSB PDB Direct Access"
+                              : customFasta 
+                                ? "Custom FASTA Analysis"
+                                : "No target selected"
+                          }
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -360,266 +378,129 @@ const Index = () => {
             </Card>
           </TabsContent>
 
-          {/* Prediction Tab */}
+          {/* Enhanced Prediction Tab */}
           <TabsContent value="predict" className="space-y-6">
-            <Card className="border-blue-200 shadow-sm">
-              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
-                <CardTitle className="flex items-center gap-2 text-blue-800">
-                  ⚙️ Professional Affinity Prediction
-                </CardTitle>
-                <CardDescription>
-                  Run research-grade AI prediction using advanced molecular descriptors
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="space-y-6">
-                  {/* Input Summary */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <h4 className="font-semibold text-blue-800 mb-2">
-                        {batchMode ? `Batch Compounds (${batchLigands.length})` : 'Target Compound'}
-                      </h4>
-                      <p className="text-sm font-mono bg-white p-2 rounded border max-h-20 overflow-y-auto">
-                        {batchMode 
-                          ? batchLigands.length > 0 
-                            ? batchLigands.slice(0, 3).join('\n') + (batchLigands.length > 3 ? '\n...' : '')
-                            : "No compounds provided"
-                          : ligandSmiles || "No SMILES provided"
-                        }
-                      </p>
-                      <Badge variant={(batchMode ? batchLigands.length > 0 : ligandSmiles) ? "default" : "secondary"} className="mt-2">
-                        {(batchMode ? batchLigands.length > 0 : ligandSmiles) ? "Ready" : "Missing"}
-                      </Badge>
-                    </div>
-                    <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                      <h4 className="font-semibold text-indigo-800 mb-2">Protein Target</h4>
-                      <p className="text-sm">
-                        {receptorType 
-                          ? popularReceptors.find(r => r.id === receptorType)?.name
-                          : customPdbId
-                            ? `PDB Structure: ${customPdbId}`
-                            : customFasta 
-                              ? "Custom FASTA sequence"
-                              : "No target selected"
-                        }
-                      </p>
-                      <Badge variant={(receptorType || customFasta || customPdbId) ? "default" : "secondary"} className="mt-2">
-                        {(receptorType || customFasta || customPdbId) ? "Ready" : "Missing"}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Prediction Button */}
-                  <div className="text-center">
-                    <Button 
-                      onClick={handlePredict}
-                      disabled={isLoading || (batchMode ? batchLigands.length === 0 : !ligandSmiles) || (!receptorType && !customFasta && !customPdbId)}
-                      size="lg"
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                    >
-                      {isLoading ? "Processing..." : `Predict Binding Affinity ${batchMode ? '(Batch)' : ''}`}
-                    </Button>
-                    
-                    {isLoading && (
-                      <div className="mt-4 space-y-2">
-                        <Progress value={66} className="w-full max-w-md mx-auto" />
-                        <p className="text-sm text-gray-600">
-                          {batchMode ? `Processing ${batchLigands.length} compounds...` : 'Analyzing molecular interactions...'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Model Information */}
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <h4 className="font-semibold text-gray-800 mb-2">AI Model Details</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <strong>Ligand Features:</strong> RDKit Descriptors + Molecular Fingerprints
-                      </div>
-                      <div>
-                        <strong>Target Features:</strong> Structural Patterns + Binding Site Properties
-                      </div>
-                      <div>
-                        <strong>Prediction Model:</strong> Force Field Ensemble + ML Calibration
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <DockingPredictionEngine
+              ligandSmiles={batchMode ? batchLigands[0] || '' : ligandSmiles}
+              receptorType={receptorType}
+              customFasta={customFasta}
+              customPdbData={customPdbId ? `PDB_ID:${customPdbId}` : undefined}
+              onPredictionComplete={handleDockingComplete}
+            />
           </TabsContent>
 
-          {/* Results Tab */}
+          {/* Enhanced Results Tab */}
           <TabsContent value="results" className="space-y-6">
             <Card className="border-blue-200 shadow-sm">
               <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                 <CardTitle className="flex items-center gap-2 text-blue-800">
-                  📊 Professional Analysis Results
+                  📊 Professional Docking Analysis Results
                 </CardTitle>
                 <CardDescription>
-                  Research-grade binding affinity analysis with professional visualization
+                  Deep learning-based binding affinity prediction with molecular visualization
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-6">
-                {affinityResult !== null ? (
+                {dockingResults ? (
                   <div className="space-y-6">
-                    {/* Main Result */}
+                    {/* Enhanced Main Result */}
                     <div className="text-center p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border">
-                      <h3 className="text-2xl font-bold text-blue-800 mb-2">Binding Affinity Result</h3>
+                      <h3 className="text-2xl font-bold text-blue-800 mb-2">Deep Learning Prediction</h3>
                       <div className="text-4xl font-bold text-indigo-600 mb-2">
-                        {affinityResult} kcal/mol
+                        {dockingResults.bindingAffinity.toFixed(2)} pKd
                       </div>
-                      <div className="flex items-center justify-center gap-2">
-                        {affinityResult < -8 ? (
-                          <>
-                            <Badge variant="default" className="bg-green-100 text-green-700">Strong Binding</Badge>
-                            <ArrowDown className="h-4 w-4 text-green-600" />
-                          </>
-                        ) : affinityResult < -6 ? (
-                          <>
-                            <Badge variant="secondary">Moderate Binding</Badge>
-                            <ArrowDown className="h-4 w-4 text-yellow-600" />
-                          </>
-                        ) : (
-                          <>
-                            <Badge variant="outline">Weak Binding</Badge>
-                            <ArrowUp className="h-4 w-4 text-red-600" />
-                          </>
-                        )}
+                      <div className="flex items-center justify-center gap-4">
+                        <Badge variant="default" className="bg-green-100 text-green-700">
+                          {dockingResults.modelUsed} Model
+                        </Badge>
+                        <Badge variant="outline">
+                          {dockingResults.confidence}% Confidence
+                        </Badge>
+                        <Badge variant="secondary">
+                          {dockingResults.interactions?.length || 0} Interactions
+                        </Badge>
                       </div>
                     </div>
 
-                    {/* Batch Results Summary */}
-                    {batchMode && currentBatchResults.length > 0 && (
+                    {/* Professional 3D Visualization */}
+                    {showAdvancedViewer && (
+                      <Advanced3DViewer
+                        ligandPdb={dockingResults.ligandPdbqt}
+                        receptorPdb={dockingResults.receptorPdbqt}
+                        interactionData={dockingResults.interactions}
+                        height={400}
+                      />
+                    )}
+
+                    {/* Enhanced Interaction Analysis */}
+                    {dockingResults.interactions && dockingResults.interactions.length > 0 && (
                       <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                          <CardTitle className="text-lg">Batch Analysis Summary</CardTitle>
-                          <Button size="sm" variant="outline" onClick={downloadBatchResults}>
-                            <Download className="h-3 w-3 mr-1" />
-                            Export CSV
-                          </Button>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Molecular Interaction Profile</CardTitle>
+                          <CardDescription>
+                            Detailed analysis of ligand-protein interactions from professional docking
+                          </CardDescription>
                         </CardHeader>
                         <CardContent>
-                          <div className="max-h-40 overflow-y-auto border rounded">
-                            <table className="w-full text-xs">
-                              <thead className="bg-gray-50 sticky top-0">
-                                <tr>
-                                  <th className="p-2 text-left">SMILES</th>
-                                  <th className="p-2 text-right">Affinity</th>
-                                  <th className="p-2 text-center">MW</th>
-                                  <th className="p-2 text-center">LogP</th>
-                                  <th className="p-2 text-right">Quality</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {currentBatchResults.map((result, i) => (
-                                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                                    <td className="p-2 font-mono truncate max-w-[150px]">{result.smiles}</td>
-                                    <td className="p-2 text-right font-medium">{result.affinity} kcal/mol</td>
-                                    <td className="p-2 text-center">{result.molecularWeight}</td>
-                                    <td className="p-2 text-center">{result.logP}</td>
-                                    <td className="p-2 text-right">
-                                      <Badge variant={result.drugLikeness === 'Pass' ? "default" : "outline"} className="text-[10px]">
-                                        {result.drugLikeness}
-                                      </Badge>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {dockingResults.interactions.map((interaction: any, index: number) => (
+                              <div key={index} className="p-3 bg-gray-50 rounded border">
+                                <div className="flex items-center justify-between mb-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {interaction.type.replace('_', ' ').toUpperCase()}
+                                  </Badge>
+                                  <span className="text-sm font-medium">{interaction.distance}Å</span>
+                                </div>
+                                <div className="text-sm">
+                                  <div><strong>Ligand:</strong> {interaction.ligandAtom}</div>
+                                  <div><strong>Protein:</strong> {interaction.proteinResidue}</div>
+                                  <div className="mt-1">
+                                    <span className="text-xs text-gray-500">Strength: </span>
+                                    <span className="text-xs font-medium">
+                                      {(interaction.strength * 100).toFixed(0)}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </CardContent>
                       </Card>
                     )}
 
-                    {/* Binding Pose Analysis */}
+                    {/* Download Section */}
                     <Card>
                       <CardHeader>
-                        <CardTitle className="text-lg">Molecular Interaction Analysis</CardTitle>
-                        <CardDescription>
-                          Professional binding pose with validated interaction mapping
-                        </CardDescription>
+                        <CardTitle className="text-lg">Download Results</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <BindingPose2D 
-                          ligandSmiles={batchMode ? (currentBatchResults[0]?.smiles || batchLigands[0]) : ligandSmiles}
-                          receptorType={receptorType}
-                          customFasta={customFasta}
-                          affinityScore={affinityResult}
-                          height={350}
-                        />
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <Button variant="outline" onClick={() => console.log('Download PDBQT ligand')}>
+                            <Download className="h-3 w-3 mr-1" />
+                            Ligand PDBQT
+                          </Button>
+                          <Button variant="outline" onClick={() => console.log('Download PDBQT receptor')}>
+                            <Download className="h-3 w-3 mr-1" />
+                            Receptor PDBQT
+                          </Button>
+                          <Button variant="outline" onClick={() => console.log('Download results CSV')}>
+                            <Download className="h-3 w-3 mr-1" />
+                            Results CSV
+                          </Button>
+                          <Button variant="outline" onClick={() => console.log('Download interaction map')}>
+                            <Download className="h-3 w-3 mr-1" />
+                            Interaction Map
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
-
-                    {/* Analysis Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Compound Properties</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            <div className="bg-gray-50 p-3 rounded border">
-                              <div className="font-medium mb-1">Physicochemical Properties</div>
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div><strong>MW:</strong> {batchMode ? currentBatchResults[0]?.molecularWeight : "~250.3"} Da</div>
-                                <div><strong>LogP:</strong> {batchMode ? currentBatchResults[0]?.logP : "2.4"}</div>
-                                <div><strong>HBD:</strong> {(ligandSmiles.match(/[OH]/g) || []).length || "2"}</div>
-                                <div><strong>HBA:</strong> {(ligandSmiles.match(/[NO]/g) || []).length || "3"}</div>
-                              </div>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded border">
-                              <div className="font-medium mb-1">Lipinski Rule of 5</div>
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div><strong>Status:</strong> <Badge variant="outline">Pass</Badge></div>
-                                <div><strong>TPSA:</strong> {"78.4"} Å²</div>
-                                <div><strong>Rot. Bonds:</strong> {"5"}</div>
-                                <div><strong>Drug-like:</strong> <Badge variant="default" className="bg-green-100 text-green-700">Yes</Badge></div>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Target Analysis</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            <div className="bg-gray-50 p-3 rounded border">
-                              <div className="font-medium mb-1">Binding Site Properties</div>
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div><strong>Target:</strong> {receptorType 
-                                  ? popularReceptors.find(r => r.id === receptorType)?.name 
-                                  : customPdbId ? `PDB: ${customPdbId}` : "Custom Target"}</div>
-                                <div><strong>Pocket Volume:</strong> {"582.3"} Å³</div>
-                                <div><strong>Hydrophobicity:</strong> {"Medium"}</div>
-                                <div><strong>Druggability Score:</strong> {"0.87"}</div>
-                              </div>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded border">
-                              <div className="font-medium mb-1">Key Interaction Residues</div>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                <Badge variant="outline" className="bg-blue-50">TYR45</Badge>
-                                <Badge variant="outline" className="bg-blue-50">ARG78</Badge>
-                                <Badge variant="outline" className="bg-blue-50">PHE203</Badge>
-                                <Badge variant="outline" className="bg-blue-50">LEU156</Badge>
-                                <Badge variant="outline" className="bg-blue-50">ASP92</Badge>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-12 text-gray-500">
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <h3 className="text-lg font-semibold mb-2">No Results Available</h3>
-                    <p className="max-w-md mx-auto">Run a prediction to see comprehensive binding affinity analysis and 
-                      visualization of molecular interactions.</p>
+                    <h3 className="text-lg font-semibold mb-2">No Docking Results Available</h3>
+                    <p className="max-w-md mx-auto">Run the professional docking engine to see comprehensive 
+                      binding affinity analysis with deep learning predictions and 3D molecular visualization.</p>
                   </div>
                 )}
               </CardContent>
