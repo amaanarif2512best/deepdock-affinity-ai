@@ -20,35 +20,121 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moleculeData, setMoleculeData] = useState<any>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!smiles) return;
     loadMolecule();
-  }, [smiles, width, height]);
+  }, [smiles, width, height, retryCount]);
 
   const loadMolecule = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Method 1: Use PubChem REST API for high-quality 2D structures
-      await renderPubChemStructure();
+      // Method 1: Try RDKit from CDN
+      if (!(window as any).RDKit) {
+        try {
+          const script = document.createElement('script');
+          script.src = 'https://unpkg.com/@rdkit/rdkit/dist/RDKit_minimal.js';
+          document.head.appendChild(script);
+          
+          await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = reject;
+            setTimeout(reject, 10000); // 10s timeout
+          });
+
+          const RDKit = await new Promise((resolve) => {
+            (window as any).initRDKitModule().then(resolve);
+          });
+          (window as any).RDKit = RDKit;
+        } catch (e) {
+          console.log('RDKit failed, trying alternative method');
+          throw new Error('RDKit unavailable');
+        }
+      }
+
+      const RDKit = (window as any).RDKit;
       
-      // Calculate molecular descriptors
-      const descriptors = calculateMolecularDescriptors(smiles);
-      setMoleculeData(descriptors);
+      // Create molecule and validate
+      const mol = RDKit.get_mol(smiles);
+      if (!mol || !mol.is_valid()) {
+        throw new Error('Invalid SMILES structure');
+      }
+
+      // Generate optimized 2D coordinates
+      const molWithCoords = RDKit.get_mol(smiles);
+      RDKit.prefer_coordgen(true);
       
+      // Draw to canvas with high quality
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, width, height);
+          
+          try {
+            // Generate high-quality SVG
+            const svg = molWithCoords.get_svg(width, height);
+            const img = new Image();
+            const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+            
+            img.onload = () => {
+              ctx.clearRect(0, 0, width, height);
+              ctx.drawImage(img, 0, 0, width, height);
+              URL.revokeObjectURL(url);
+            };
+            
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              throw new Error('SVG rendering failed');
+            };
+            
+            img.src = url;
+          } catch (e) {
+            throw new Error('Structure rendering failed');
+          }
+        }
+      }
+
+      // Calculate molecular descriptors safely
+      try {
+        const descriptors = mol.get_descriptors();
+        setMoleculeData({
+          molecularWeight: descriptors.AMW?.toFixed(2) || 'N/A',
+          logP: descriptors.CrippenClogP?.toFixed(2) || 'N/A',
+          hbdCount: descriptors.NumHBD || 0,
+          hbaCount: descriptors.NumHBA || 0,
+          tpsa: descriptors.TPSA?.toFixed(2) || 'N/A',
+          rotBonds: descriptors.NumRotatableBonds || 0
+        });
+      } catch (e) {
+        console.warn('Descriptor calculation failed:', e);
+        setMoleculeData({
+          molecularWeight: 'N/A',
+          logP: 'N/A',
+          hbdCount: 0,
+          hbaCount: 0,
+          tpsa: 'N/A',
+          rotBonds: 0
+        });
+      }
+
+      // Cleanup
+      mol.delete();
+      molWithCoords.delete();
       setIsLoading(false);
 
     } catch (err) {
       console.error('2D structure generation error:', err);
+      setError('Failed to generate 2D structure');
       
-      // Fallback to CDK Depict service
+      // Fallback: Use PubChem REST API for structure image
       try {
-        await renderCDKStructure();
-        setError(null);
+        await renderFallbackStructure();
       } catch (fallbackErr) {
-        setError('Structure generation failed');
         renderPlaceholder();
       }
       
@@ -56,7 +142,7 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
     }
   };
 
-  const renderPubChemStructure = async () => {
+  const renderFallbackStructure = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -64,8 +150,8 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
     if (!ctx) return;
 
     try {
-      // Use PubChem's chemical structure service
-      const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/PNG?image_size=${width}x${height}&bgcolor=white`;
+      // Try PubChem image service
+      const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/PNG?image_size=300x200`;
       
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -73,94 +159,20 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
       await new Promise((resolve, reject) => {
         img.onload = () => {
           ctx.clearRect(0, 0, width, height);
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
           resolve(img);
         };
         img.onerror = reject;
         img.src = pubchemUrl;
-        setTimeout(reject, 8000);
+        
+        // Timeout fallback
+        setTimeout(reject, 5000);
       });
       
+      setError(null);
     } catch (e) {
-      throw new Error('PubChem rendering failed');
+      throw new Error('Fallback rendering failed');
     }
-  };
-
-  const renderCDKStructure = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    try {
-      // Use CDK Depict service as fallback
-      const cdkUrl = `https://www.simolecule.com/cdkdepict/depict/bow/svg?smi=${encodeURIComponent(smiles)}&w=${width}&h=${height}`;
-      
-      const response = await fetch(cdkUrl);
-      const svgText = await response.text();
-      
-      const img = new Image();
-      const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-      
-      await new Promise((resolve, reject) => {
-        img.onload = () => {
-          ctx.clearRect(0, 0, width, height);
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          URL.revokeObjectURL(url);
-          resolve(img);
-        };
-        img.onerror = () => {
-          URL.revokeObjectURL(url);
-          reject();
-        };
-        img.src = url;
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-          reject();
-        }, 5000);
-      });
-      
-    } catch (e) {
-      throw new Error('CDK rendering failed');
-    }
-  };
-
-  const calculateMolecularDescriptors = (smilesString: string) => {
-    // Advanced molecular descriptor calculation
-    const atomCount = smilesString.replace(/[^A-Z]/g, '').length;
-    const carbonCount = (smilesString.match(/C/g) || []).length;
-    const nitrogenCount = (smilesString.match(/N/g) || []).length;
-    const oxygenCount = (smilesString.match(/O/g) || []).length;
-    const sulfurCount = (smilesString.match(/S/g) || []).length;
-    
-    // Estimated molecular weight
-    const estimatedMW = carbonCount * 12.01 + nitrogenCount * 14.01 + oxygenCount * 16.00 + sulfurCount * 32.07;
-    
-    // Lipinski descriptors approximation
-    const hbdCount = (smilesString.match(/[OH]/g) || []).length + (smilesString.match(/N[^+]/g) || []).length;
-    const hbaCount = nitrogenCount + oxygenCount;
-    const rotBonds = Math.max(0, atomCount - 6); // Rough approximation
-    
-    // LogP estimation (Crippen method approximation)
-    const logP = (carbonCount * 0.2 - oxygenCount * 0.5 - nitrogenCount * 0.3).toFixed(2);
-    
-    // TPSA estimation
-    const tpsa = (oxygenCount * 20.2 + nitrogenCount * 11.7).toFixed(2);
-
-    return {
-      molecularWeight: estimatedMW.toFixed(2),
-      logP: logP,
-      hbdCount: hbdCount,
-      hbaCount: hbaCount,
-      tpsa: tpsa,
-      rotBonds: Math.min(rotBonds, 10)
-    };
   };
 
   const renderPlaceholder = () => {
@@ -174,6 +186,7 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, width, height);
     
+    // Draw molecular structure placeholder
     ctx.strokeStyle = '#64748b';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
@@ -183,11 +196,15 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
     ctx.font = '14px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('2D Structure', width/2, height/2 - 10);
-    ctx.fillText('Loading...', width/2, height/2 + 10);
+    ctx.fillText('Generation Failed', width/2, height/2 + 10);
+    
+    ctx.font = '10px Arial';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText('SMILES: ' + smiles.substring(0, 20) + '...', width/2, height/2 + 30);
   };
 
   const retry = () => {
-    loadMolecule();
+    setRetryCount(prev => prev + 1);
   };
 
   const downloadImage = () => {
@@ -204,7 +221,7 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
     <Card className="border border-blue-200">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold text-blue-800">High-Quality 2D Structure</CardTitle>
+          <CardTitle className="text-sm font-semibold text-blue-800">2D Structure</CardTitle>
           <div className="flex gap-2">
             {error && (
               <Button size="sm" variant="outline" onClick={retry}>
@@ -230,7 +247,7 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
             <div className="absolute inset-0 flex items-center justify-center bg-white/90 rounded">
               <div className="text-sm text-gray-600 flex items-center gap-2">
                 <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                Generating high-quality structure...
+                Generating structure...
               </div>
             </div>
           )}
@@ -265,11 +282,12 @@ const MoleculeViewer2D: React.FC<MoleculeViewer2DProps> = ({
           </div>
         )}
 
-        <div className="flex gap-2 text-xs">
-          <Badge variant="outline">PubChem Quality</Badge>
-          <Badge variant="outline">Research Grade</Badge>
-          <Badge variant="outline">Publication Ready</Badge>
-        </div>
+        {error && (
+          <div className="text-xs text-amber-700 bg-amber-50 p-3 rounded border border-amber-200">
+            <div className="font-medium">Structure generation in progress...</div>
+            <div className="mt-1">Using alternative rendering method</div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
