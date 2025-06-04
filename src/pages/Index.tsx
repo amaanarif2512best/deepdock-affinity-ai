@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Search, ArrowUp, ArrowDown, Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import MoleculeViewer2D from "@/components/MoleculeViewer2D";
 import MoleculeViewer3D from "@/components/MoleculeViewer3D";
