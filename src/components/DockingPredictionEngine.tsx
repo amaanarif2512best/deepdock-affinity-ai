@@ -7,17 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Play, Settings, Database, Brain, Download } from "lucide-react";
+import { Play, Settings, Database, Brain, Download, Zap } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { 
   prepareLigandPDBQT, 
   prepareReceptorPDBQT, 
+  runAutoDockVina,
   predictWithDeepDTA, 
   predictWithGraphDTA,
   analyzeMolecularInteractions,
   type DeepLearningPrediction,
   type DockingResult,
-  type InteractionDetails
+  type InteractionDetails,
+  type AutoDockResult
 } from "@/utils/dockingUtils";
 
 interface DockingPredictionEngineProps {
@@ -38,6 +40,7 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState('');
   const [progress, setProgress] = useState(0);
+  const [dockingMethod, setDockingMethod] = useState('deeplearning');
   const [selectedModel, setSelectedModel] = useState('DeepDTA');
   const [preparationStatus, setPreparationStatus] = useState<{
     ligandPrepared: boolean;
@@ -45,7 +48,7 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
     ligandPdbqt?: string;
     receptorPdbqt?: string;
   }>({ ligandPrepared: false, receptorPrepared: false });
-  const [predictionResults, setPredictionResults] = useState<DeepLearningPrediction | null>(null);
+  const [predictionResults, setPredictionResults] = useState<DeepLearningPrediction | AutoDockResult | null>(null);
   const [interactionAnalysis, setInteractionAnalysis] = useState<InteractionDetails[]>([]);
 
   const handleDockingPrediction = async () => {
@@ -63,37 +66,47 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
 
     try {
       // Step 1: Prepare Ligand PDBQT
-      setCurrentStep('Preparing ligand with AutoDockTools...');
-      setProgress(20);
+      setCurrentStep('Preparing ligand with AutoDockTools & Open Babel...');
+      setProgress(15);
       
       const ligandPdbqt = await prepareLigandPDBQT(ligandSmiles);
       setPreparationStatus(prev => ({ ...prev, ligandPrepared: true, ligandPdbqt }));
       
       // Step 2: Prepare Receptor PDBQT
-      setCurrentStep('Preparing receptor structure...');
-      setProgress(40);
+      setCurrentStep('Preparing receptor structure with AutoDockTools...');
+      setProgress(30);
       
       const receptorPdb = customPdbData || generateReceptorPDB();
       const receptorPdbqt = await prepareReceptorPDBQT(receptorPdb, customFasta);
       setPreparationStatus(prev => ({ ...prev, receptorPrepared: true, receptorPdbqt }));
       
-      // Step 3: Deep Learning Prediction
-      setCurrentStep(`Running ${selectedModel} prediction...`);
-      setProgress(60);
+      let prediction: DeepLearningPrediction | AutoDockResult;
       
-      const proteinSequence = customFasta ? extractSequenceFromFasta(customFasta) : getReceptorSequence(receptorType);
-      
-      let prediction: DeepLearningPrediction;
-      if (selectedModel === 'DeepDTA') {
-        prediction = await predictWithDeepDTA(ligandSmiles, proteinSequence);
+      if (dockingMethod === 'traditional') {
+        // Step 3: Traditional AutoDock Vina Docking
+        setCurrentStep('Running AutoDock Vina molecular docking...');
+        setProgress(60);
+        
+        prediction = await runAutoDockVina(ligandPdbqt, receptorPdbqt);
+        
       } else {
-        prediction = await predictWithGraphDTA(ligandSmiles, proteinSequence);
+        // Step 3: Deep Learning Prediction
+        setCurrentStep(`Running ${selectedModel} deep learning prediction...`);
+        setProgress(60);
+        
+        const proteinSequence = customFasta ? extractSequenceFromFasta(customFasta) : getReceptorSequence(receptorType);
+        
+        if (selectedModel === 'DeepDTA') {
+          prediction = await predictWithDeepDTA(ligandSmiles, proteinSequence);
+        } else {
+          prediction = await predictWithGraphDTA(ligandSmiles, proteinSequence);
+        }
       }
       
       setPredictionResults(prediction);
       
       // Step 4: Molecular Interaction Analysis
-      setCurrentStep('Analyzing molecular interactions...');
+      setCurrentStep('Analyzing precise molecular interactions...');
       setProgress(80);
       
       const interactions = analyzeMolecularInteractions(ligandPdbqt, receptorPdbqt);
@@ -105,20 +118,26 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
       
       // Generate final results
       const finalResults = {
-        bindingAffinity: prediction.affinityScore,
-        confidence: prediction.confidence,
-        modelUsed: prediction.modelUsed,
+        bindingAffinity: 'affinityScore' in prediction ? prediction.affinityScore : prediction.bestPose.energy,
+        confidence: 'confidence' in prediction ? prediction.confidence : prediction.vinaScore,
+        modelUsed: 'modelUsed' in prediction ? prediction.modelUsed : 'AutoDock Vina',
         interactions: interactions,
         ligandPdbqt,
         receptorPdbqt,
-        preparation: preparationStatus
+        preparation: preparationStatus,
+        dockingMethod,
+        bestPose: 'bestPose' in prediction ? prediction.bestPose : null,
+        poses: 'poses' in prediction ? prediction.poses : null
       };
       
       onPredictionComplete(finalResults);
       
+      const affinityValue = 'affinityScore' in prediction ? prediction.affinityScore : prediction.bestPose.energy;
+      const confidenceValue = 'confidence' in prediction ? prediction.confidence : prediction.vinaScore;
+      
       toast({
         title: "Docking Complete",
-        description: `${selectedModel} prediction: ${prediction.affinityScore.toFixed(2)} pKd (${prediction.confidence}% confidence)`,
+        description: `${dockingMethod === 'traditional' ? 'AutoDock Vina' : selectedModel} result: ${affinityValue.toFixed(2)} ${dockingMethod === 'traditional' ? 'kcal/mol' : 'pKd'} (${confidenceValue}% confidence)`,
       });
       
     } catch (error) {
@@ -173,33 +192,85 @@ END`;
       <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
         <CardTitle className="flex items-center gap-2 text-blue-800">
           <Brain className="h-5 w-5" />
-          Advanced Docking Prediction Engine
+          Professional Docking & Affinity Prediction Engine
         </CardTitle>
       </CardHeader>
       <CardContent className="p-6 space-y-6">
         
-        {/* Model Selection */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Deep Learning Model</label>
-          <Select value={selectedModel} onValueChange={setSelectedModel}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select prediction model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="DeepDTA">
-                <div className="flex flex-col">
-                  <span className="font-medium">DeepDTA</span>
-                  <span className="text-xs text-gray-500">Convolutional Neural Network for Drug-Target Affinity</span>
+        {/* Docking Method Selection */}
+        <div className="space-y-4">
+          <label className="text-sm font-medium">Docking Method</label>
+          <Tabs value={dockingMethod} onValueChange={setDockingMethod} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="traditional" className="flex items-center gap-2">
+                <Zap className="h-4 w-4" />
+                Traditional Docking
+              </TabsTrigger>
+              <TabsTrigger value="deeplearning" className="flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                Deep Learning
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="traditional" className="mt-4">
+              <Card className="p-4 bg-blue-50 border-blue-200">
+                <div className="flex items-start gap-3">
+                  <Zap className="h-5 w-5 text-blue-600 mt-1" />
+                  <div>
+                    <h4 className="font-medium text-blue-800">AutoDock Vina Simulation</h4>
+                    <p className="text-sm text-blue-600 mt-1">
+                      Classical molecular docking using AutoDock Vina algorithm
+                    </p>
+                    <div className="mt-2 text-xs text-blue-500">
+                      <strong>Input:</strong> Receptor .pdbqt + Ligand .pdbqt<br/>
+                      <strong>Output:</strong> Binding affinity (kcal/mol) + Binding poses
+                    </div>
+                  </div>
                 </div>
-              </SelectItem>
-              <SelectItem value="GraphDTA">
-                <div className="flex flex-col">
-                  <span className="font-medium">GraphDTA</span>
-                  <span className="text-xs text-gray-500">Graph Neural Network for Enhanced Predictions</span>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="deeplearning" className="mt-4">
+              <Card className="p-4 bg-purple-50 border-purple-200">
+                <div className="flex items-start gap-3">
+                  <Brain className="h-5 w-5 text-purple-600 mt-1" />
+                  <div>
+                    <h4 className="font-medium text-purple-800">AI-Powered Prediction</h4>
+                    <p className="text-sm text-purple-600 mt-1">
+                      Deep learning models trained on extensive binding affinity databases
+                    </p>
+                    <div className="mt-2 text-xs text-purple-500">
+                      <strong>Input:</strong> Ligand SMILES + Protein FASTA<br/>
+                      <strong>Output:</strong> Binding affinity score (pKd regression)
+                    </div>
+                  </div>
                 </div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
+              </Card>
+              
+              <div className="mt-4 space-y-2">
+                <label className="text-sm font-medium">Deep Learning Model</label>
+                <Select value={selectedModel} onValueChange={setSelectedModel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select AI model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DeepDTA">
+                      <div className="flex flex-col">
+                        <span className="font-medium">DeepDTA</span>
+                        <span className="text-xs text-gray-500">CNN for Drug-Target Affinity</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="GraphDTA">
+                      <div className="flex flex-col">
+                        <span className="font-medium">GraphDTA</span>
+                        <span className="text-xs text-gray-500">Graph Neural Network</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         <Separator />
@@ -262,7 +333,7 @@ END`;
             className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
           >
             <Play className="h-4 w-4 mr-2" />
-            {isRunning ? "Running Docking Analysis..." : "Start Docking Prediction"}
+            {isRunning ? `Running ${dockingMethod === 'traditional' ? 'AutoDock Vina' : 'AI'} Analysis...` : `Start ${dockingMethod === 'traditional' ? 'Traditional' : 'AI'} Docking`}
           </Button>
           
           {isRunning && (
@@ -277,23 +348,35 @@ END`;
         {predictionResults && (
           <div className="mt-6 space-y-4">
             <Separator />
-            <h3 className="text-lg font-semibold">Prediction Results</h3>
+            <h3 className="text-lg font-semibold">
+              {dockingMethod === 'traditional' ? 'AutoDock Vina Results' : 'Deep Learning Results'}
+            </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="p-4 text-center">
                 <h4 className="font-medium">Binding Affinity</h4>
                 <div className="text-2xl font-bold text-blue-600 mt-2">
-                  {predictionResults.affinityScore.toFixed(2)} pKd
+                  {'affinityScore' in predictionResults 
+                    ? `${predictionResults.affinityScore.toFixed(2)} pKd`
+                    : `${predictionResults.bestPose.energy.toFixed(2)} kcal/mol`
+                  }
                 </div>
-                <p className="text-sm text-gray-500">Deep Learning Prediction</p>
+                <p className="text-sm text-gray-500">
+                  {dockingMethod === 'traditional' ? 'AutoDock Vina Score' : 'AI Prediction'}
+                </p>
               </Card>
               
               <Card className="p-4 text-center">
-                <h4 className="font-medium">Model Confidence</h4>
+                <h4 className="font-medium">Confidence/Score</h4>
                 <div className="text-2xl font-bold text-green-600 mt-2">
-                  {predictionResults.confidence}%
+                  {'confidence' in predictionResults 
+                    ? `${predictionResults.confidence}%`
+                    : `${predictionResults.vinaScore.toFixed(1)}`
+                  }
                 </div>
-                <p className="text-sm text-gray-500">{predictionResults.modelUsed}</p>
+                <p className="text-sm text-gray-500">
+                  {'modelUsed' in predictionResults ? predictionResults.modelUsed : 'Vina Score'}
+                </p>
               </Card>
               
               <Card className="p-4 text-center">
@@ -304,6 +387,26 @@ END`;
                 <p className="text-sm text-gray-500">Key Binding Sites</p>
               </Card>
             </div>
+
+            {/* Additional Traditional Docking Results */}
+            {'poses' in predictionResults && predictionResults.poses && (
+              <Card className="p-4">
+                <h4 className="font-medium mb-3">Docking Poses (Top 5)</h4>
+                <div className="space-y-2">
+                  {predictionResults.poses.slice(0, 5).map((pose, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">Pose {index + 1}</Badge>
+                        <span>Energy: {pose.energy.toFixed(2)} kcal/mol</span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">RMSD: {pose.rmsd.toFixed(2)}Å</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             {/* Interaction Analysis */}
             {interactionAnalysis.length > 0 && (
@@ -334,6 +437,40 @@ END`;
       </CardContent>
     </Card>
   );
+};
+
+const generateReceptorPDB = (): string => {
+  return `HEADER    PROTEIN RECEPTOR
+ATOM      1  N   ALA A   1      20.154  16.967  18.849  1.00 20.00           N
+ATOM      2  CA  ALA A   1      21.618  17.134  18.669  1.00 20.00           C
+ATOM      3  C   ALA A   1      22.354  15.816  18.397  1.00 20.00           C
+ATOM      4  O   ALA A   1      21.807  14.734  18.173  1.00 20.00           O
+END`;
+};
+
+const extractSequenceFromFasta = (fasta: string): string => {
+  return fasta.replace(/^>.*\n/, '').replace(/\n/g, '');
+};
+
+const getReceptorSequence = (receptor: string): string => {
+  const sequences = {
+    'il-6': 'MNSFSTSAFGPVAFSLGLLLVLPAAFPAPVPPGEDSKDVAAPHRQPLTSSERIDKQIRYILDGISALRKETCNKSNMCESSKEALAENNLNLPKMAEKDGCFQSGFNEETCLVKIITGLLEFEVYLEYLQNRFESSEEQARAVQMSTKVLIQFLQKKAKNLDAITTPDPTTNASLLTKLQAQNQWLQDMTTHLILRSFKEFLQSSLRALRQM',
+    'il-10': 'MHSSALLCCLVLLTGVRASPGQGTQSENSCTHFPGNLPNMLRDLRDAFSRVKTFFQMKDQLDNLLLKESLLEDFKGYLGCQALSEMIQFYLEEVMPQAENQDPDIKAHVNSLGENLKTLRLRLRRCHRFLPCENKSKAVEQVKNAFNKLQEKGIYKAMSEFDIFINYIEAYMTMKIRN',
+    'il-17a': 'MTILYATFMKFVPPALAVLLHGFIPPATPDPTNFSGSLLFVPTFQLCNTNLHSAGFTLNVDSSHLYNHFQPLFTVPDIVHQQLRDQYGDFEAMEKSTQALLLVDDFMEELQHLAQIAHELVVVHAMGFKAATLNPFDLRYAHGDAATQRLQQGVEHEMQTLDHLLQLPAHQAHLPDQGLRELQGLRGLQETGAAVDLLGELHELMERLQAMAQLHAEHIVDQGGIKPLDKQTQFEENPTV',
+    'tnf-alpha': 'MSTESMIRDVELAEEALPKKTGGPQGSRRCLFLSLFSFLIVAGATTLFCLLHFGVIGPQREEFPRDLSLISPLAQAVRSSSRTPSDKPVAHVVANPQAEGQLQWLNRRANALLANGVELRDNQLVVPSEGLYLIYSQVLFKGQGCPSTHVLLTHTISRIAVSYQTKVNLLSAIKSPCQRETPEGAEAKPWYEPIYLGGVFQLEKGDRLSAEINRPDYLDFAESGQVYFGIIAL'
+  };
+  
+  return sequences[receptor as keyof typeof sequences] || sequences['il-6'];
+};
+
+const downloadPDBQT = (content: string, filename: string) => {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 export default DockingPredictionEngine;
