@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,9 +46,16 @@ const Index = () => {
     });
   };
 
-  // Download functionality
+  // Fixed download functionality
   const downloadResultsCSV = () => {
-    if (!dockingResults) return;
+    if (!dockingResults) {
+      toast({
+        title: "No Results",
+        description: "Please run a prediction first to download results.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const csvData = [
       ['Parameter', 'Value'],
@@ -73,6 +79,7 @@ const Index = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     
     console.log('CSV results downloaded successfully');
     toast({
@@ -82,7 +89,14 @@ const Index = () => {
   };
 
   const downloadPredictionReport = () => {
-    if (!dockingResults) return;
+    if (!dockingResults) {
+      toast({
+        title: "No Results",
+        description: "Please run a prediction first to download the report.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const reportContent = `
 DeepDockAI Pro - Binding Affinity Prediction Report
@@ -130,6 +144,7 @@ For more information, visit our documentation.
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     
     console.log('Prediction report downloaded successfully');
     toast({
@@ -413,7 +428,7 @@ For more information, visit our documentation.
                             <Advanced3DViewer
                               ligandPdb={dockingResults.ligandPdbqt}
                               receptorPdb={dockingResults.receptorPdbqt}
-                              interactionData={[]}
+                              bindingAffinity={dockingResults.bindingAffinity}
                               height={450}
                             />
                           </CardContent>
