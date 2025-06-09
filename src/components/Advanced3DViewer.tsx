@@ -460,7 +460,7 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 bg-blue-300 rounded"></div>
-                  <span><strong>Light Colors:</strong> Weak binding (<5.0 pKd, millimolar)</span>
+                  <span><strong>Light Colors:</strong> Weak binding (&lt;5.0 pKd, millimolar)</span>
                 </div>
               </div>
             </div>
