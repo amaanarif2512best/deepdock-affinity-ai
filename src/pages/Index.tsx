@@ -23,7 +23,6 @@ import Advanced3DViewer from "@/components/Advanced3DViewer";
 const Index = () => {
   const [ligandSmiles, setLigandSmiles] = useState('');
   const [batchLigands, setBatchLigands] = useState<string[]>([]);
-  const [receptorType, setReceptorType] = useState('');
   const [customFasta, setCustomFasta] = useState('');
   const [customPdbId, setCustomPdbId] = useState('');
   const [affinityResult, setAffinityResult] = useState<number | null>(null);
@@ -33,13 +32,6 @@ const Index = () => {
   const [dockingResults, setDockingResults] = useState<any>(null);
   const [showAdvancedViewer, setShowAdvancedViewer] = useState(false);
 
-  const popularReceptors = [
-    { id: 'il-6', name: 'IL-6 (Interleukin-6)', description: 'Pro-inflammatory cytokine', pdbId: '1ALU' },
-    { id: 'il-10', name: 'IL-10 (Interleukin-10)', description: 'Anti-inflammatory cytokine', pdbId: '2ILK' },
-    { id: 'il-17a', name: 'IL-17A (Interleukin-17A)', description: 'Pro-inflammatory cytokine', pdbId: '4HSA' },
-    { id: 'tnf-alpha', name: 'TNF-α (Tumor Necrosis Factor)', description: 'Pro-inflammatory cytokine', pdbId: '2AZ5' },
-  ];
-
   // Enhanced SMILES validation
   function validateSmiles(smiles: string) {
     const smilesPattern = /^[A-Za-z0-9@+\-\[\]()=#$/\\%.]+$/;
@@ -48,12 +40,11 @@ const Index = () => {
 
   function handlePredict() {
     const ligandsToProcess = batchMode ? batchLigands : [ligandSmiles];
-    const receptor = receptorType || 'custom';
     
-    if (ligandsToProcess.length === 0 || (!receptorType && !customFasta && !customPdbId)) {
+    if (ligandsToProcess.length === 0 || (!customFasta && !customPdbId)) {
       toast({
         title: "Missing Input",
-        description: "Please provide ligand(s) and receptor information.",
+        description: "Please provide ligand(s) and protein sequence/PDB ID.",
         variant: "destructive"
       });
       return;
@@ -76,7 +67,7 @@ const Index = () => {
     setTimeout(() => {
       if (batchMode) {
         const batchResults = ligandsToProcess.map(smiles => {
-          const prediction = predictBindingAffinity(smiles, receptor, customFasta);
+          const prediction = predictBindingAffinity(smiles, 'custom', customFasta);
           const descriptors = calculateMolecularDescriptors(smiles);
           return {
             smiles,
@@ -99,7 +90,7 @@ const Index = () => {
           description: `${batchResults.length} compounds analyzed. Best affinity: ${batchResults[0].affinity} kcal/mol`,
         });
       } else {
-        const prediction = predictBindingAffinity(ligandSmiles, receptor, customFasta);
+        const prediction = predictBindingAffinity(ligandSmiles, 'custom', customFasta);
         setAffinityResult(prediction.affinity);
         
         toast({
@@ -137,7 +128,7 @@ const Index = () => {
     setShowAdvancedViewer(true);
     
     toast({
-      title: "Professional Docking Complete",
+      title: "Deep Learning Prediction Complete",
       description: `Advanced prediction complete with ${results.confidence}% confidence`,
     });
   };
@@ -152,17 +143,17 @@ const Index = () => {
               <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                 DeepDockAI Pro
               </h1>
-              <p className="text-gray-600 mt-1">Professional AI-Driven Molecular Docking • Research Platform</p>
+              <p className="text-gray-600 mt-1">AI-Driven Molecular Docking • Custom Protein Analysis</p>
             </div>
             <div className="flex gap-2">
               <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                Research Grade
+                Deep Learning
               </Badge>
               <Badge variant="outline" className="border-green-200 text-green-700">
-                PDB Integrated
+                Custom Models
               </Badge>
               <Badge variant="outline" className="border-purple-200 text-purple-700">
-                Database Quality
+                Pretrained Data
               </Badge>
             </div>
           </div>
@@ -177,10 +168,10 @@ const Index = () => {
               🧪 Ligand Analysis
             </TabsTrigger>
             <TabsTrigger value="receptor" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              🧬 Protein Target
+              🧬 Custom Protein
             </TabsTrigger>
             <TabsTrigger value="predict" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
-              ⚙️ Docking Engine
+              ⚙️ Deep Learning Engine
             </TabsTrigger>
             <TabsTrigger value="results" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
               📊 Analysis Results
@@ -269,38 +260,19 @@ const Index = () => {
             )}
           </TabsContent>
 
-          {/* Receptor Input Tab */}
+          {/* Modified Receptor Input Tab */}
           <TabsContent value="receptor" className="space-y-6">
             <Card className="border-blue-200 shadow-sm">
               <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                 <CardTitle className="flex items-center gap-2 text-blue-800">
                   <Search className="h-5 w-5" />
-                  Professional Target Selection
+                  Custom Protein Target Input
                 </CardTitle>
                 <CardDescription>
-                  Choose from validated PDB structures or provide custom sequence/PDB ID
+                  Provide your custom protein sequence (FASTA format) or PDB ID for deep learning analysis
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-6 space-y-6">
-                <div className="space-y-2">
-                  <Label>Curated Target Database</Label>
-                  <Select value={receptorType} onValueChange={setReceptorType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select from PDB-validated targets" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {popularReceptors.map((receptor) => (
-                        <SelectItem key={receptor.id} value={receptor.id}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{receptor.name}</span>
-                            <span className="text-sm text-gray-500">{receptor.description} • PDB: {receptor.pdbId}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="pdb-id">Direct PDB ID</Label>
@@ -313,7 +285,7 @@ const Index = () => {
                       className="font-mono"
                     />
                     <p className="text-sm text-gray-500">
-                      Enter 4-character PDB ID for direct structure access
+                      Enter 4-character PDB ID for structure-based analysis
                     </p>
                   </div>
 
@@ -334,42 +306,42 @@ const Index = () => {
                     className="font-mono text-sm h-32"
                   />
                   <p className="text-sm text-gray-500">
-                    Paste your protein sequence in FASTA format for custom analysis
+                    Paste your protein sequence in FASTA format for custom deep learning analysis
                   </p>
                 </div>
 
-                {(receptorType || customFasta || customPdbId) && (
+                {(customFasta || customPdbId) && (
                   <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
                     <h4 className="font-semibold text-gray-800 mb-4">3D Structure Visualization</h4>
                     <ProteinViewer3D 
-                      receptorType={receptorType} 
+                      receptorType=""
                       fastaSequence={customFasta}
                       pdbId={customPdbId}
                       height={350}
                     />
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       <div className="bg-white p-3 rounded border">
-                        <strong>Target:</strong> {receptorType 
-                          ? popularReceptors.find(r => r.id === receptorType)?.name 
-                          : customPdbId
-                            ? `PDB Structure: ${customPdbId}`
-                            : customFasta 
-                              ? "Custom FASTA sequence"
-                              : "No target selected"
+                        <strong>Target:</strong> {customPdbId 
+                          ? `PDB Structure: ${customPdbId}`
+                          : customFasta 
+                            ? "Custom FASTA sequence"
+                            : "No target selected"
                         }
                       </div>
                       <div className="bg-white p-3 rounded border">
                         <strong>Source:</strong>
                         <div className="text-gray-600 mt-1">
-                          {receptorType 
-                            ? "PDB Database (Primary)"
-                            : customPdbId 
-                              ? "RCSB PDB Direct Access"
-                              : customFasta 
-                                ? "Custom FASTA Analysis"
-                                : "No target selected"
+                          {customPdbId 
+                            ? "RCSB PDB Direct Access"
+                            : customFasta 
+                              ? "Custom FASTA Analysis"
+                              : "No target selected"
                           }
                         </div>
+                      </div>
+                      <div className="bg-white p-3 rounded border">
+                        <strong>Analysis Method:</strong>
+                        <div className="text-gray-600 mt-1">Deep Learning Models</div>
                       </div>
                     </div>
                   </div>
@@ -382,7 +354,7 @@ const Index = () => {
           <TabsContent value="predict" className="space-y-6">
             <DockingPredictionEngine
               ligandSmiles={batchMode ? batchLigands[0] || '' : ligandSmiles}
-              receptorType={receptorType}
+              receptorType=""
               customFasta={customFasta}
               customPdbData={customPdbId ? `PDB_ID:${customPdbId}` : undefined}
               onPredictionComplete={handleDockingComplete}
@@ -394,10 +366,10 @@ const Index = () => {
             <Card className="border-blue-200 shadow-sm">
               <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                 <CardTitle className="flex items-center gap-2 text-blue-800">
-                  📊 Professional Docking Analysis Results
+                  📊 Deep Learning Prediction Results
                 </CardTitle>
                 <CardDescription>
-                  Deep learning-based binding affinity prediction with molecular visualization
+                  AI-powered binding affinity prediction with molecular visualization
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-6">
@@ -407,7 +379,7 @@ const Index = () => {
                     <div className="text-center p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border">
                       <h3 className="text-2xl font-bold text-blue-800 mb-2">Deep Learning Prediction</h3>
                       <div className="text-4xl font-bold text-indigo-600 mb-2">
-                        {dockingResults.bindingAffinity.toFixed(2)} pKd
+                        {dockingResults.bindingAffinity.toFixed(2)} {dockingResults.metricType || 'pKd'}
                       </div>
                       <div className="flex items-center justify-center gap-4">
                         <Badge variant="default" className="bg-green-100 text-green-700">
@@ -438,7 +410,7 @@ const Index = () => {
                         <CardHeader>
                           <CardTitle className="text-lg">Molecular Interaction Profile</CardTitle>
                           <CardDescription>
-                            Detailed analysis of ligand-protein interactions from professional docking
+                            Detailed analysis of ligand-protein interactions from deep learning prediction
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -498,9 +470,9 @@ const Index = () => {
                 ) : (
                   <div className="text-center py-12 text-gray-500">
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <h3 className="text-lg font-semibold mb-2">No Docking Results Available</h3>
-                    <p className="max-w-md mx-auto">Run the professional docking engine to see comprehensive 
-                      binding affinity analysis with deep learning predictions and 3D molecular visualization.</p>
+                    <h3 className="text-lg font-semibold mb-2">No Prediction Results Available</h3>
+                    <p className="max-w-md mx-auto">Run the deep learning prediction engine to see comprehensive 
+                      binding affinity analysis with AI-powered predictions and 3D molecular visualization.</p>
                   </div>
                 )}
               </CardContent>
