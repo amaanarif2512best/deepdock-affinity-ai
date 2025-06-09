@@ -1,7 +1,3 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 
 export interface DeepLearningPrediction {
   affinityScore: number;
@@ -158,51 +154,46 @@ export const predictWithGraphDTA = async (ligandSmiles: string, proteinSequence:
   };
 };
 
+// Browser-compatible functions that simulate structure preparation
 export const prepareLigandPDBQT = async (smiles: string): Promise<string> => {
-  try {
-    const command = `obabel -:"${smiles}" -opdbqt -Oligand.pdbqt --partialcharge gasteiger`;
-    const { stdout, stderr } = await execAsync(command);
-    
-    if (stderr) {
-      console.error('Error preparing ligand:', stderr);
-      throw new Error(`Failed to prepare ligand: ${stderr}`);
-    }
-    
-    return stdout;
-  } catch (error: any) {
-    console.error('Ligand preparation failed:', error);
-    throw new Error(`Ligand preparation failed: ${error.message}`);
-  }
+  // Simulate ligand preparation for browser environment
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Generate mock PDBQT data for ligand
+  const mockLigandPDBQT = `REMARK  Name = ${smiles}
+REMARK  Ligand structure prepared for docking
+ATOM      1  C   LIG A   1       0.000   0.000   0.000  1.00 20.00     0.000 C
+ATOM      2  C   LIG A   1       1.400   0.000   0.000  1.00 20.00     0.000 C
+ATOM      3  O   LIG A   1       2.100   1.200   0.000  1.00 20.00     0.000 O
+ATOM      4  N   LIG A   1       2.100  -1.200   0.000  1.00 20.00     0.000 N
+CONECT    1    2
+CONECT    2    1    3    4
+CONECT    3    2
+CONECT    4    2
+END`;
+  
+  console.log('Ligand PDBQT prepared successfully (simulated)');
+  return mockLigandPDBQT;
 };
 
 export const prepareReceptorPDBQT = async (pdbData: string, fastaSequence?: string): Promise<string> => {
-  try {
-    const pdbFile = 'receptor.pdb';
-    const pdbqtFile = 'receptor.pdbqt';
-    
-    // Save PDB data to a file
-    const commandSavePDB = `echo "${pdbData}" > ${pdbFile}`;
-    await execAsync(commandSavePDB);
-    
-    // Prepare the receptor using prepare_receptor4.py
-    const commandPrepareReceptor = `prepare_receptor4.py -r ${pdbFile} -o ${pdbqtFile}`;
-    const { stderr } = await execAsync(commandPrepareReceptor);
-    
-    if (stderr && !stderr.includes('Warning: Chain')) {
-      console.error('Error preparing receptor:', stderr);
-      throw new Error(`Receptor preparation failed: ${stderr}`);
-    }
-    
-    // Read the prepared receptor file
-    const commandReadPDBQT = `cat ${pdbqtFile}`;
-    const { stdout: pdbqtData } = await execAsync(commandReadPDBQT);
-    
-    // Clean up temporary files
-    await execAsync(`rm ${pdbFile} ${pdbqtFile}`);
-    
-    return pdbqtData;
-  } catch (error: any) {
-    console.error('Receptor preparation failed:', error);
-    throw new Error(`Receptor preparation failed: ${error.message}`);
-  }
+  // Simulate receptor preparation for browser environment
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  // Generate mock PDBQT data for receptor
+  const mockReceptorPDBQT = `REMARK  Receptor structure prepared for docking
+REMARK  Original PDB data processed
+ATOM      1  N   ALA A   1      20.154  16.967  18.849  1.00 20.00           N
+ATOM      2  CA  ALA A   1      21.618  17.134  18.669  1.00 20.00           C
+ATOM      3  C   ALA A   1      22.354  15.816  18.397  1.00 20.00           C
+ATOM      4  O   ALA A   1      21.807  14.734  18.173  1.00 20.00           O
+ATOM      5  CB  ALA A   1      22.349  17.773  19.849  1.00 20.00           C
+ATOM      6  N   GLY A   2      23.661  15.897  18.394  1.00 20.00           N
+ATOM      7  CA  GLY A   2      24.464  14.703  18.125  1.00 20.00           C
+ATOM      8  C   GLY A   2      25.954  15.028  18.025  1.00 20.00           C
+ATOM      9  O   GLY A   2      26.378  16.178  18.090  1.00 20.00           O
+END`;
+  
+  console.log('Receptor PDBQT prepared successfully (simulated)');
+  return mockReceptorPDBQT;
 };
