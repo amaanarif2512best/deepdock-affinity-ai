@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,16 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Search, ArrowUp, ArrowDown, Download } from "lucide-react";
+import { FileText, Search, Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import MoleculeViewer2D from "@/components/MoleculeViewer2D";
 import MoleculeViewer3D from "@/components/MoleculeViewer3D";
 import ProteinViewer3D from "@/components/ProteinViewer3D";
-import BindingPose2D from "@/components/BindingPose2D";
 import BatchLigandInput from "@/components/BatchLigandInput";
 import { predictBindingAffinity, calculateMolecularDescriptors } from "@/utils/molecularUtils";
 import DockingPredictionEngine from "@/components/DockingPredictionEngine";
@@ -38,90 +36,6 @@ const Index = () => {
     return smilesPattern.test(smiles) && smiles.length > 2;
   }
 
-  function handlePredict() {
-    const ligandsToProcess = batchMode ? batchLigands : [ligandSmiles];
-    
-    if (ligandsToProcess.length === 0 || (!customFasta && !customPdbId)) {
-      toast({
-        title: "Missing Input",
-        description: "Please provide ligand(s) and protein sequence/PDB ID.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Validate all SMILES
-    const invalidSmiles = ligandsToProcess.filter(smiles => !validateSmiles(smiles));
-    if (invalidSmiles.length > 0) {
-      toast({
-        title: "Invalid SMILES Detected",
-        description: `${invalidSmiles.length} invalid SMILES found. Please check your input.`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    
-    // Calculate accurate predictions
-    setTimeout(() => {
-      if (batchMode) {
-        const batchResults = ligandsToProcess.map(smiles => {
-          const prediction = predictBindingAffinity(smiles, 'custom', customFasta);
-          const descriptors = calculateMolecularDescriptors(smiles);
-          return {
-            smiles,
-            affinity: prediction.affinity,
-            confidence: prediction.confidence,
-            bindingMode: prediction.bindingMode,
-            molecularWeight: descriptors.molecularWeight,
-            logP: descriptors.logP,
-            drugLikeness: (descriptors.molecularWeight <= 500 && descriptors.logP <= 5) ? 'Pass' : 'Fail'
-          };
-        });
-        
-        // Sort by best affinity
-        batchResults.sort((a, b) => a.affinity - b.affinity);
-        setCurrentBatchResults(batchResults);
-        setAffinityResult(batchResults[0].affinity);
-        
-        toast({
-          title: "Batch Analysis Complete",
-          description: `${batchResults.length} compounds analyzed. Best affinity: ${batchResults[0].affinity} kcal/mol`,
-        });
-      } else {
-        const prediction = predictBindingAffinity(ligandSmiles, 'custom', customFasta);
-        setAffinityResult(prediction.affinity);
-        
-        toast({
-          title: "Prediction Complete",
-          description: `Binding affinity: ${prediction.affinity} kcal/mol (${prediction.confidence}% confidence)`,
-        });
-      }
-      
-      setIsLoading(false);
-    }, 3500);
-  }
-
-  const downloadBatchResults = () => {
-    if (currentBatchResults.length === 0) return;
-    
-    const csvContent = [
-      'SMILES,Binding Affinity (kcal/mol),Confidence (%),Binding Mode,Molecular Weight,LogP,Drug-likeness',
-      ...currentBatchResults.map(result => 
-        `${result.smiles},${result.affinity},${result.confidence},${result.bindingMode},${result.molecularWeight},${result.logP},${result.drugLikeness}`
-      )
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'docking_results.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const handleDockingComplete = (results: any) => {
     setDockingResults(results);
     setAffinityResult(results.bindingAffinity);
@@ -129,7 +43,7 @@ const Index = () => {
     
     toast({
       title: "Deep Learning Prediction Complete",
-      description: `Advanced prediction complete with ${results.confidence}% confidence`,
+      description: `Prediction complete with ${results.confidence}% confidence`,
     });
   };
 
@@ -143,17 +57,17 @@ const Index = () => {
               <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                 DeepDockAI Pro
               </h1>
-              <p className="text-gray-600 mt-1">AI-Driven Molecular Docking • Custom Protein Analysis</p>
+              <p className="text-gray-600 mt-1">A Deep Learning Framework for Predicting Receptor–Ligand Docking Scores and Binding Affinity</p>
             </div>
             <div className="flex gap-2">
               <Badge variant="secondary" className="bg-blue-100 text-blue-700">
                 Deep Learning
               </Badge>
               <Badge variant="outline" className="border-green-200 text-green-700">
-                Custom Models
+                Pretrained Model
               </Badge>
               <Badge variant="outline" className="border-purple-200 text-purple-700">
-                Pretrained Data
+                Training Dataset
               </Badge>
             </div>
           </div>
@@ -389,56 +303,97 @@ const Index = () => {
                           {dockingResults.confidence}% Confidence
                         </Badge>
                         <Badge variant="secondary">
-                          {dockingResults.interactions?.length || 0} Interactions
+                          Based on Training Dataset
                         </Badge>
                       </div>
                     </div>
 
-                    {/* Professional 3D Visualization */}
+                    {/* Enhanced 3D Visualization with Color Guide */}
                     {showAdvancedViewer && (
-                      <Advanced3DViewer
-                        ligandPdb={dockingResults.ligandPdbqt}
-                        receptorPdb={dockingResults.receptorPdbqt}
-                        interactionData={dockingResults.interactions}
-                        height={400}
-                      />
-                    )}
-
-                    {/* Enhanced Interaction Analysis */}
-                    {dockingResults.interactions && dockingResults.interactions.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Molecular Interaction Profile</CardTitle>
-                          <CardDescription>
-                            Detailed analysis of ligand-protein interactions from deep learning prediction
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {dockingResults.interactions.map((interaction: any, index: number) => (
-                              <div key={index} className="p-3 bg-gray-50 rounded border">
-                                <div className="flex items-center justify-between mb-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    {interaction.type.replace('_', ' ').toUpperCase()}
-                                  </Badge>
-                                  <span className="text-sm font-medium">{interaction.distance}Å</span>
+                      <div className="space-y-4">
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-lg">3D Molecular Visualization & Binding Pose</CardTitle>
+                            <CardDescription>
+                              Interactive 3D visualization of the predicted ligand-receptor complex
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <Advanced3DViewer
+                              ligandPdb={dockingResults.ligandPdbqt}
+                              receptorPdb={dockingResults.receptorPdbqt}
+                              interactionData={dockingResults.interactions}
+                              height={400}
+                            />
+                            
+                            {/* Color Guide and Information */}
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                              <h4 className="font-semibold mb-3">3D Visualization Color Guide</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                                  <span><strong>Protein Receptor:</strong> Blue structure represents the protein binding site</span>
                                 </div>
-                                <div className="text-sm">
-                                  <div><strong>Ligand:</strong> {interaction.ligandAtom}</div>
-                                  <div><strong>Protein:</strong> {interaction.proteinResidue}</div>
-                                  <div className="mt-1">
-                                    <span className="text-xs text-gray-500">Strength: </span>
-                                    <span className="text-xs font-medium">
-                                      {(interaction.strength * 100).toFixed(0)}%
-                                    </span>
-                                  </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-red-500 rounded"></div>
+                                  <span><strong>Ligand Molecule:</strong> Red structure shows the small molecule compound</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-green-500 rounded"></div>
+                                  <span><strong>Active Site:</strong> Green highlights indicate binding pocket regions</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                                  <span><strong>Key Interactions:</strong> Yellow shows important binding contacts</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-purple-500 rounded"></div>
+                                  <span><strong>Secondary Structure:</strong> Purple represents protein alpha-helices</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-4 h-4 bg-orange-500 rounded"></div>
+                                  <span><strong>Beta Sheets:</strong> Orange shows protein beta-strand regions</span>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
+                              
+                              <div className="mt-4 pt-3 border-t border-gray-300">
+                                <h5 className="font-medium mb-2">Visualization Controls:</h5>
+                                <ul className="text-sm text-gray-600 space-y-1">
+                                  <li>• <strong>Rotate:</strong> Left-click and drag to rotate the 3D structure</li>
+                                  <li>• <strong>Zoom:</strong> Use mouse wheel or right-click drag to zoom in/out</li>
+                                  <li>• <strong>Pan:</strong> Middle-click and drag to move the view</li>
+                                  <li>• <strong>Reset:</strong> Double-click to reset to original view</li>
+                                </ul>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
                     )}
+
+                    {/* Training Dataset Information */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Prediction Basis</CardTitle>
+                        <CardDescription>
+                          This prediction is based on our pretrained DeepDock model using the following dataset
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-sm text-gray-600">
+                          <p className="mb-2">
+                            <strong>Training Dataset:</strong> 20 protein-ligand complexes with known binding affinities
+                          </p>
+                          <p className="mb-2">
+                            <strong>Protein Targets:</strong> Glutathione S-transferase, Phosphoglycerate kinase, 
+                            T4 Lysozyme, c-Src tyrosine kinase, Growth hormone receptor, and others
+                          </p>
+                          <p>
+                            <strong>Affinity Range:</strong> 1.3 - 9.47 pKd (covering nanomolar to millimolar binding)
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
 
                     {/* Download Section */}
                     <Card>
@@ -446,22 +401,14 @@ const Index = () => {
                         <CardTitle className="text-lg">Download Results</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <Button variant="outline" onClick={() => console.log('Download PDBQT ligand')}>
-                            <Download className="h-3 w-3 mr-1" />
-                            Ligand PDBQT
-                          </Button>
-                          <Button variant="outline" onClick={() => console.log('Download PDBQT receptor')}>
-                            <Download className="h-3 w-3 mr-1" />
-                            Receptor PDBQT
-                          </Button>
+                        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
                           <Button variant="outline" onClick={() => console.log('Download results CSV')}>
                             <Download className="h-3 w-3 mr-1" />
                             Results CSV
                           </Button>
-                          <Button variant="outline" onClick={() => console.log('Download interaction map')}>
+                          <Button variant="outline" onClick={() => console.log('Download prediction report')}>
                             <Download className="h-3 w-3 mr-1" />
-                            Interaction Map
+                            Prediction Report
                           </Button>
                         </div>
                       </CardContent>

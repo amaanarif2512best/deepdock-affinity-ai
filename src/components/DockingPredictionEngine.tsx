@@ -4,10 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Play, Brain, Download } from "lucide-react";
+import { Play, Brain } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { 
   prepareLigandPDBQT, 
@@ -15,9 +14,7 @@ import {
   predictWithDeepDock,
   predictWithDeepDTA, 
   predictWithGraphDTA,
-  analyzeMolecularInteractions,
-  type DeepLearningPrediction,
-  type InteractionDetails
+  type DeepLearningPrediction
 } from "@/utils/dockingUtils";
 
 interface DockingPredictionEngineProps {
@@ -42,11 +39,8 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
   const [preparationStatus, setPreparationStatus] = useState<{
     ligandPrepared: boolean;
     receptorPrepared: boolean;
-    ligandPdbqt?: string;
-    receptorPdbqt?: string;
   }>({ ligandPrepared: false, receptorPrepared: false });
   const [predictionResults, setPredictionResults] = useState<DeepLearningPrediction | null>(null);
-  const [interactionAnalysis, setInteractionAnalysis] = useState<InteractionDetails[]>([]);
 
   const handleDockingPrediction = async () => {
     if (!ligandSmiles || (!customFasta && !customPdbData)) {
@@ -62,24 +56,24 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
     setProgress(0);
 
     try {
-      // Step 1: Prepare Ligand PDBQT
-      setCurrentStep('Preparing ligand with AutoDockTools & Open Babel...');
-      setProgress(15);
+      // Step 1: Prepare Ligand
+      setCurrentStep('Preparing ligand structure...');
+      setProgress(20);
       
       const ligandPdbqt = await prepareLigandPDBQT(ligandSmiles);
-      setPreparationStatus(prev => ({ ...prev, ligandPrepared: true, ligandPdbqt }));
+      setPreparationStatus(prev => ({ ...prev, ligandPrepared: true }));
       
-      // Step 2: Prepare Receptor PDBQT
-      setCurrentStep('Preparing receptor structure with AutoDockTools...');
-      setProgress(30);
+      // Step 2: Prepare Receptor
+      setCurrentStep('Preparing receptor structure...');
+      setProgress(40);
       
       const receptorPdb = customPdbData || generateReceptorPDB();
       const receptorPdbqt = await prepareReceptorPDBQT(receptorPdb, customFasta);
-      setPreparationStatus(prev => ({ ...prev, receptorPrepared: true, receptorPdbqt }));
+      setPreparationStatus(prev => ({ ...prev, receptorPrepared: true }));
       
       // Step 3: Deep Learning Prediction
       setCurrentStep(`Running ${selectedModel} deep learning prediction...`);
-      setProgress(60);
+      setProgress(75);
       
       const proteinSequence = customFasta ? extractSequenceFromFasta(customFasta) : '';
       
@@ -95,14 +89,7 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
       
       setPredictionResults(prediction);
       
-      // Step 4: Molecular Interaction Analysis
-      setCurrentStep('Analyzing precise molecular interactions...');
-      setProgress(80);
-      
-      const interactions = analyzeMolecularInteractions(ligandPdbqt, receptorPdbqt);
-      setInteractionAnalysis(interactions);
-      
-      // Step 5: Complete
+      // Step 4: Complete
       setCurrentStep('Deep learning analysis complete!');
       setProgress(100);
       
@@ -111,7 +98,6 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
         bindingAffinity: prediction.affinityScore,
         confidence: prediction.confidence,
         modelUsed: prediction.modelUsed,
-        interactions: interactions,
         ligandPdbqt,
         receptorPdbqt,
         preparation: preparationStatus,
@@ -152,16 +138,6 @@ END`;
     return fasta.replace(/^>.*\n/, '').replace(/\n/g, '');
   };
 
-  const downloadPDBQT = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <Card className="border-blue-200 shadow-sm">
       <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
@@ -181,11 +157,11 @@ END`;
               <div>
                 <h4 className="font-medium text-purple-800">AI-Powered Binding Affinity Prediction</h4>
                 <p className="text-sm text-purple-600 mt-1">
-                  Deep learning models trained on extensive binding affinity databases
+                  Deep learning models trained on our curated binding affinity dataset
                 </p>
                 <div className="mt-2 text-xs text-purple-500">
                   <strong>Input:</strong> Ligand SMILES + Protein FASTA<br/>
-                  <strong>Output:</strong> Binding affinity score (pKd/pKi/pIC50)
+                  <strong>Output:</strong> Binding affinity score (pKd) with confidence
                 </div>
               </div>
             </div>
@@ -201,7 +177,7 @@ END`;
                 <SelectItem value="DeepDock">
                   <div className="flex flex-col">
                     <span className="font-medium">DeepDock (Pretrained)</span>
-                    <span className="text-xs text-gray-500">Custom trained model on your dataset</span>
+                    <span className="text-xs text-gray-500">Trained on our curated dataset</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="DeepDTA">
@@ -229,22 +205,11 @@ END`;
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="font-medium">Ligand Preparation</h4>
-                <p className="text-sm text-gray-500">AutoDockTools + Open Babel</p>
+                <p className="text-sm text-gray-500">Structure optimization</p>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={preparationStatus.ligandPrepared ? "default" : "secondary"}>
-                  {preparationStatus.ligandPrepared ? "Ready" : "Pending"}
-                </Badge>
-                {preparationStatus.ligandPdbqt && (
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => downloadPDBQT(preparationStatus.ligandPdbqt!, 'ligand.pdbqt')}
-                  >
-                    <Download className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
+              <Badge variant={preparationStatus.ligandPrepared ? "default" : "secondary"}>
+                {preparationStatus.ligandPrepared ? "Ready" : "Pending"}
+              </Badge>
             </div>
           </Card>
           
@@ -252,22 +217,11 @@ END`;
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="font-medium">Receptor Preparation</h4>
-                <p className="text-sm text-gray-500">PDB Processing + PDBQT</p>
+                <p className="text-sm text-gray-500">Structure processing</p>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={preparationStatus.receptorPrepared ? "default" : "secondary"}>
-                  {preparationStatus.receptorPrepared ? "Ready" : "Pending"}
-                </Badge>
-                {preparationStatus.receptorPdbqt && (
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => downloadPDBQT(preparationStatus.receptorPdbqt!, 'receptor.pdbqt')}
-                  >
-                    <Download className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
+              <Badge variant={preparationStatus.receptorPrepared ? "default" : "secondary"}>
+                {preparationStatus.receptorPrepared ? "Ready" : "Pending"}
+              </Badge>
             </div>
           </Card>
         </div>
@@ -298,7 +252,7 @@ END`;
             <Separator />
             <h3 className="text-lg font-semibold">Deep Learning Results</h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card className="p-4 text-center">
                 <h4 className="font-medium">Binding Affinity</h4>
                 <div className="text-2xl font-bold text-blue-600 mt-2">
@@ -312,42 +266,18 @@ END`;
                 <div className="text-2xl font-bold text-green-600 mt-2">
                   {predictionResults.confidence}%
                 </div>
-                <p className="text-sm text-gray-500">{predictionResults.modelUsed}</p>
-              </Card>
-              
-              <Card className="p-4 text-center">
-                <h4 className="font-medium">Interactions Found</h4>
-                <div className="text-2xl font-bold text-purple-600 mt-2">
-                  {interactionAnalysis.length}
-                </div>
-                <p className="text-sm text-gray-500">Key Binding Sites</p>
+                <p className="text-sm text-gray-500">Model Confidence</p>
               </Card>
             </div>
 
-            {/* Interaction Analysis */}
-            {interactionAnalysis.length > 0 && (
-              <Card className="p-4">
-                <h4 className="font-medium mb-3">Molecular Interactions</h4>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {interactionAnalysis.map((interaction, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          {interaction.type.replace('_', ' ')}
-                        </Badge>
-                        <span>{interaction.ligandAtom} ↔ {interaction.proteinResidue}</span>
-                      </div>
-                      <div className="text-right">
-                        <div>{interaction.distance}Å</div>
-                        <div className="text-xs text-gray-500">
-                          Strength: {(interaction.strength * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
+            {/* Training Dataset Reference */}
+            <Card className="p-4">
+              <h4 className="font-medium mb-2">Prediction Basis</h4>
+              <p className="text-sm text-gray-600">
+                This prediction is based on our pretrained model using a curated dataset of 20 protein-ligand 
+                complexes with experimentally determined binding affinities ranging from 1.3 to 9.47 pKd.
+              </p>
+            </Card>
           </div>
         )}
       </CardContent>
