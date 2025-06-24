@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -5,7 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Play, Brain, Clock, Hash, CheckCircle } from "lucide-react";
+import { Play, Brain, Clock, Hash, CheckCircle, AlertTriangle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { 
   prepareLigandPDBQT, 
@@ -44,12 +45,42 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
     receptorPrepared: boolean;
   }>({ ligandPrepared: false, receptorPrepared: false });
   const [predictionResults, setPredictionResults] = useState<DeepLearningPrediction | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Input validation function
+  const validateInputs = (): string | null => {
+    if (!ligandSmiles || ligandSmiles.trim().length < 3) {
+      return "Please provide a valid SMILES string (minimum 3 characters)";
+    }
+
+    // Basic SMILES validation
+    const basicSmilesPattern = /^[A-Za-z0-9@+\-\[\]()=#$/\\%.\s]+$/;
+    if (!basicSmilesPattern.test(ligandSmiles)) {
+      return "SMILES string contains invalid characters";
+    }
+
+    if (!customFasta && !customPdbData) {
+      return "Please provide either a FASTA sequence or PDB data for the protein target";
+    }
+
+    if (customFasta && customFasta.length < 10) {
+      return "FASTA sequence is too short (minimum 10 characters)";
+    }
+
+    return null;
+  };
 
   const handleDockingPrediction = async () => {
-    if (!ligandSmiles || (!customFasta && !customPdbData)) {
+    // Clear previous validation errors
+    setValidationError(null);
+    
+    // Validate inputs
+    const validation = validateInputs();
+    if (validation) {
+      setValidationError(validation);
       toast({
-        title: "Missing Input",
-        description: "Please provide both ligand SMILES and protein sequence/PDB data.",
+        title: "Input Validation Failed",
+        description: validation,
         variant: "destructive"
       });
       return;
@@ -58,8 +89,18 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
     setIsRunning(true);
     setProgress(0);
     setPredictionResults(null);
+    setPreparationStatus({ ligandPrepared: false, receptorPrepared: false });
 
     try {
+      console.log('Starting docking prediction with inputs:', {
+        ligandSmiles: ligandSmiles.substring(0, 50) + '...',
+        hasCustomFasta: !!customFasta,
+        hasCustomPdbData: !!customPdbData,
+        selectedModel,
+        pubchemId,
+        pdbId
+      });
+
       // Step 1: Prepare Ligand
       setCurrentStep('Preparing ligand structure with molecular descriptors...');
       setProgress(20);
@@ -91,6 +132,11 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
         prediction = await predictWithGraphDTA(ligandSmiles, proteinSequence, pubchemId, pdbId);
       }
       
+      // Validate prediction results
+      if (!prediction || isNaN(prediction.affinityScore) || isNaN(prediction.confidence)) {
+        throw new Error('Invalid prediction results received');
+      }
+      
       setPredictionResults(prediction);
       
       // Step 4: Complete
@@ -113,8 +159,16 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
         pubchemId: pubchemId,
         pdbId: pdbId,
         trainingDataUsed: prediction.trainingDataUsed,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        ligandSmiles: ligandSmiles,
+        proteinData: {
+          fastaSequence: customFasta,
+          pdbData: customPdbData,
+          pdbId: pdbId
+        }
       };
+      
+      console.log('Prediction completed successfully:', finalResults);
       
       onPredictionComplete(finalResults);
       
@@ -125,9 +179,14 @@ const DockingPredictionEngine: React.FC<DockingPredictionEngineProps> = ({
       
     } catch (error) {
       console.error('Docking prediction error:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      setValidationError(`Prediction failed: ${errorMessage}`);
+      
       toast({
         title: "Prediction Failed",
-        description: "An error occurred during deep learning analysis.",
+        description: `An error occurred during deep learning analysis: ${errorMessage}`,
         variant: "destructive"
       });
     } finally {
@@ -145,8 +204,15 @@ END`;
   };
 
   const extractSequenceFromFasta = (fasta: string): string => {
-    return fasta.replace(/^>.*\n/, '').replace(/\n/g, '');
+    return fasta.replace(/^>.*\n?/gm, '').replace(/\n/g, '').replace(/\s/g, '');
   };
+
+  // Check if inputs are valid for prediction
+  const canRunPrediction = !isRunning && 
+                          ligandSmiles && 
+                          ligandSmiles.length >= 3 && 
+                          (customFasta || customPdbData) &&
+                          !validationError;
 
   return (
     <Card className="border-blue-200 shadow-sm">
@@ -158,6 +224,19 @@ END`;
       </CardHeader>
       <CardContent className="p-6 space-y-6">
         
+        {/* Input Validation Status */}
+        {validationError && (
+          <Card className="p-4 bg-red-50 border-red-200">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-600 mt-1" />
+              <div>
+                <h4 className="font-medium text-red-800">Input Validation Error</h4>
+                <p className="text-sm text-red-600 mt-1">{validationError}</p>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Enhanced Model Information */}
         <div className="space-y-4">
           <label className="text-sm font-medium">Deep Learning Model</label>
@@ -171,7 +250,8 @@ END`;
                 </p>
                 <div className="mt-2 text-xs text-purple-500">
                   <strong>Features:</strong> Deterministic results, molecular descriptors, protein sequence analysis<br/>
-                  <strong>Output:</strong> Binding affinity score (pKd) with confidence and runtime metrics
+                  <strong>Output:</strong> Binding affinity score (pKd) with confidence and runtime metrics<br/>
+                  <strong>Validation:</strong> Input validation and error handling for robust predictions
                 </div>
               </div>
             </div>
@@ -210,26 +290,39 @@ END`;
         <Separator />
 
         {/* Enhanced Input Information */}
-        {(pubchemId || pdbId) && (
-          <Card className="p-4 bg-blue-50 border-blue-200">
-            <h4 className="font-medium text-blue-800 mb-2">Input Information</h4>
-            <div className="flex gap-2 flex-wrap">
-              {pubchemId && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Hash className="h-3 w-3" />
-                  PubChem: {pubchemId}
-                </Badge>
-              )}
-              {pdbId && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Hash className="h-3 w-3" />
-                  PDB: {pdbId}
-                </Badge>
-              )}
-              <Badge variant="secondary">Enhanced Processing</Badge>
+        <Card className="p-4 bg-blue-50 border-blue-200">
+          <h4 className="font-medium text-blue-800 mb-2">Current Input Status</h4>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Ligand SMILES:</span>
+              <Badge variant={ligandSmiles ? "default" : "secondary"}>
+                {ligandSmiles ? `${ligandSmiles.length} chars` : "Not provided"}
+              </Badge>
             </div>
-          </Card>
-        )}
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Protein Target:</span>
+              <Badge variant={(customFasta || customPdbData) ? "default" : "secondary"}>
+                {customFasta ? "FASTA provided" : customPdbData ? "PDB provided" : "Not provided"}
+              </Badge>
+            </div>
+            {(pubchemId || pdbId) && (
+              <div className="flex gap-2 flex-wrap mt-2">
+                {pubchemId && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Hash className="h-3 w-3" />
+                    PubChem: {pubchemId}
+                  </Badge>
+                )}
+                {pdbId && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Hash className="h-3 w-3" />
+                    PDB: {pdbId}
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+        </Card>
 
         {/* Preparation Status */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -264,13 +357,21 @@ END`;
         <div className="text-center">
           <Button 
             onClick={handleDockingPrediction}
-            disabled={isRunning || !ligandSmiles || (!customFasta && !customPdbData)}
+            disabled={!canRunPrediction}
             size="lg"
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+            className={`${canRunPrediction 
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" 
+              : "bg-gray-400"}`}
           >
             <Play className="h-4 w-4 mr-2" />
             {isRunning ? `Running ${selectedModel} Analysis...` : `Start ${selectedModel} Prediction`}
           </Button>
+          
+          {!canRunPrediction && !isRunning && (
+            <p className="text-sm text-gray-500 mt-2">
+              Please provide valid SMILES and protein data to enable prediction
+            </p>
+          )}
           
           {isRunning && (
             <div className="mt-4 space-y-2">
