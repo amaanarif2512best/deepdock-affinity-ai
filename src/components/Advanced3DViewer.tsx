@@ -1,10 +1,9 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RotateCcw, Download, RefreshCw, Eye } from "lucide-react";
+import { RotateCcw, Download, RefreshCw, Eye, AlertCircle } from "lucide-react";
 
 interface Advanced3DViewerProps {
   ligandPdb?: string;
@@ -28,8 +27,9 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState('complex');
-  const [representationStyle, setRepresentationStyle] = useState('cartoon');
+  const [representationStyle, setRepresentationStyle] = useState('optimal');
   const [currentComponents, setCurrentComponents] = useState<any[]>([]);
+  const [processingSteps, setProcessingSteps] = useState<string[]>([]);
 
   useEffect(() => {
     initializeViewer();
@@ -41,19 +41,22 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
     }
   }, [viewMode, representationStyle, viewer, currentComponents]);
 
+  const addProcessingStep = (step: string) => {
+    console.log(`Processing: ${step}`);
+    setProcessingSteps(prev => [...prev, step]);
+  };
+
   const initializeViewer = async () => {
     try {
       setIsLoading(true);
       setError(null);
+      setProcessingSteps([]);
 
-      console.log('Initializing 3D Viewer with data:', { 
-        ligandPdb: !!ligandPdb, 
-        receptorPdb: !!receptorPdb, 
-        complexPdb: !!complexPdb 
-      });
+      addProcessingStep('Initializing NGL Viewer...');
 
       // Load NGL Viewer
       if (!(window as any).NGL) {
+        addProcessingStep('Loading NGL library...');
         const script = document.createElement('script');
         script.src = 'https://cdn.jsdelivr.net/npm/ngl@2.0.0-dev.38/dist/ngl.js';
         document.head.appendChild(script);
@@ -82,30 +85,43 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
         
         const components = [];
         
-        // Load structures based on available data
+        // Step 1: Check for complex file first (merged receptor + ligand)
         if (complexPdb) {
-          console.log('Loading complex structure');
+          addProcessingStep('Loading merged complex structure (receptor + docked ligand)...');
           const comp = await loadComplexStructure(stage, complexPdb);
           components.push({ component: comp, type: 'complex' });
+        } else if (receptorPdb && ligandPdb) {
+          // Step 2: Create complex from separate files
+          addProcessingStep('Converting and merging receptor and ligand files...');
+          const mergedPdb = createMergedComplex(receptorPdb, ligandPdb);
+          const comp = await loadComplexStructure(stage, mergedPdb);
+          components.push({ component: comp, type: 'complex' });
         } else {
+          // Fallback: Load individual structures
           if (receptorPdb) {
-            console.log('Loading receptor structure');
+            addProcessingStep('Loading receptor structure...');
             const comp = await loadReceptorStructure(stage, receptorPdb);
             components.push({ component: comp, type: 'receptor' });
           }
           if (ligandPdb) {
-            console.log('Loading ligand structure');
+            addProcessingStep('Loading docked ligand pose...');
             const comp = await loadLigandStructure(stage, ligandPdb);
             components.push({ component: comp, type: 'ligand' });
           }
         }
 
+        if (components.length === 0) {
+          throw new Error('No valid molecular structures provided');
+        }
+
+        addProcessingStep('Applying optimal visualization representations...');
         setCurrentComponents(components);
         setViewer(stage);
         setIsLoading(false);
         
         setTimeout(() => {
           stage.autoView();
+          addProcessingStep('Visualization complete!');
         }, 100);
       }
     } catch (err) {
@@ -113,6 +129,35 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
       setError('Failed to initialize 3D viewer');
       setIsLoading(false);
     }
+  };
+
+  // Step 1: Create merged complex from separate receptor and ligand files
+  const createMergedComplex = (receptorData: string, ligandData: string): string => {
+    addProcessingStep('Merging receptor.pdb + ligand_docked.pdb → complex.pdb');
+    
+    // Clean and format receptor data
+    const cleanReceptor = receptorData
+      .split('\n')
+      .filter(line => line.startsWith('ATOM') || line.startsWith('HETATM'))
+      .join('\n');
+    
+    // Clean and format ligand data (docked pose)
+    const cleanLigand = ligandData
+      .split('\n')
+      .filter(line => line.startsWith('ATOM') || line.startsWith('HETATM'))
+      .join('\n');
+    
+    // Merge with proper headers
+    const mergedComplex = `HEADER    MERGED PROTEIN-LIGAND COMPLEX
+REMARK   1 RECEPTOR AND DOCKED LIGAND MERGED FOR VISUALIZATION
+REMARK   2 GENERATED FROM AUTODOCK VINA DOCKING OUTPUT
+${cleanReceptor}
+TER
+${cleanLigand}
+END
+`;
+    
+    return mergedComplex;
   };
 
   const loadComplexStructure = async (stage: any, pdbData: string) => {
@@ -132,7 +177,6 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
     );
 
     receptor.removeAllRepresentations();
-    console.log('Receptor structure loaded successfully');
     return receptor;
   };
 
@@ -143,14 +187,14 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
     );
 
     ligand.removeAllRepresentations();
-    console.log('Ligand structure loaded successfully');
     return ligand;
   };
 
+  // Step 3: Apply optimal representation styles
   const updateVisualization = () => {
     if (!viewer || currentComponents.length === 0) return;
 
-    console.log('Updating visualization with mode:', viewMode, 'style:', representationStyle);
+    console.log('Applying visualization with mode:', viewMode, 'style:', representationStyle);
 
     currentComponents.forEach(({ component, type }) => {
       component.removeAllRepresentations();
@@ -163,12 +207,11 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
       component.setVisibility(shouldShow);
       
       if (shouldShow) {
-        if (type === 'receptor' || (type === 'complex')) {
-          addProteinRepresentation(component, type);
-        }
-
-        if (type === 'ligand' || (type === 'complex' && viewMode !== 'receptor')) {
-          addLigandRepresentation(component, type);
+        if (representationStyle === 'optimal') {
+          // Step 4: Optimal representation for binding clarity
+          applyOptimalRepresentation(component, type);
+        } else {
+          applyCustomRepresentation(component, type, representationStyle);
         }
       }
     });
@@ -178,77 +221,95 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
     }, 100);
   };
 
-  const addProteinRepresentation = (component: any, type: string) => {
-    const proteinSelection = type === 'complex' ? 'protein' : 'all';
+  // Bonus: Optimal representation for binding clarity
+  const applyOptimalRepresentation = (component: any, type: string) => {
     const affinityColor = getAffinityBasedColor(bindingAffinity);
     
-    switch (representationStyle) {
-      case 'cartoon':
-        component.addRepresentation('cartoon', {
-          sele: proteinSelection,
-          color: affinityColor.protein,
-          opacity: 0.9
-        });
-        // Secondary structure
-        component.addRepresentation('cartoon', {
-          sele: proteinSelection + ' and helix',
-          color: '#9B59B6',
-          opacity: 0.8
-        });
-        component.addRepresentation('cartoon', {
-          sele: proteinSelection + ' and sheet',
-          color: '#E67E22',
-          opacity: 0.8
-        });
-        break;
-      case 'surface':
-        component.addRepresentation('surface', {
-          sele: proteinSelection,
-          color: affinityColor.protein,
-          opacity: 0.7
-        });
-        break;
-      case 'ribbon':
-        component.addRepresentation('ribbon', {
-          sele: proteinSelection,
-          color: affinityColor.protein,
-          opacity: 0.9
-        });
-        break;
-      case 'backbone':
-        component.addRepresentation('backbone', {
-          sele: proteinSelection,
-          color: affinityColor.protein,
-          radiusScale: 0.5
-        });
-        break;
-    }
-
-    // Binding site highlighting for complex and binding_site view
-    if (type === 'complex' && viewMode === 'binding_site') {
+    if (type === 'complex') {
+      // Protein backbone - cartoon representation
+      component.addRepresentation('cartoon', {
+        sele: 'protein',
+        color: affinityColor.protein,
+        opacity: 0.9
+      });
+      
+      // Ligand - ball+stick with element colors
+      component.addRepresentation('ball+stick', {
+        sele: 'hetero and not water',
+        color: 'element',
+        radiusScale: 0.8
+      });
+      
+      // Protein surface for binding site (low opacity)
       component.addRepresentation('surface', {
-        sele: 'protein and within 5 of hetero',
+        sele: 'protein',
+        opacity: 0.2,
+        color: affinityColor.bindingSite
+      });
+      
+      // Highlight binding site residues
+      component.addRepresentation('licorice', {
+        sele: 'protein and within 4 of hetero',
         color: affinityColor.bindingSite,
-        opacity: 0.4
+        opacity: 0.8
+      });
+      
+    } else if (type === 'receptor') {
+      // Cartoon for protein
+      component.addRepresentation('cartoon', {
+        sele: 'all',
+        color: affinityColor.protein,
+        opacity: 0.9
+      });
+      
+    } else if (type === 'ligand') {
+      // Ball+stick for ligand with element colors
+      component.addRepresentation('ball+stick', {
+        sele: 'all',
+        color: 'element',
+        radiusScale: 0.8
       });
     }
   };
 
-  const addLigandRepresentation = (component: any, type: string) => {
-    const ligandSelection = type === 'complex' ? 'hetero and not water' : 'all';
+  const applyCustomRepresentation = (component: any, type: string, style: string) => {
     const affinityColor = getAffinityBasedColor(bindingAffinity);
     
-    component.addRepresentation('ball+stick', {
-      sele: ligandSelection,
-      color: affinityColor.ligand,
-      radiusScale: 0.8
-    });
+    if (type === 'receptor' || type === 'complex') {
+      const proteinSelection = type === 'complex' ? 'protein' : 'all';
+      
+      switch (style) {
+        case 'cartoon':
+          component.addRepresentation('cartoon', {
+            sele: proteinSelection,
+            color: affinityColor.protein,
+            opacity: 0.9
+          });
+          break;
+        case 'surface':
+          component.addRepresentation('surface', {
+            sele: proteinSelection,
+            color: affinityColor.protein,
+            opacity: 0.7
+          });
+          break;
+        case 'licorice':
+          component.addRepresentation('licorice', {
+            sele: proteinSelection,
+            color: affinityColor.protein,
+            opacity: 0.9
+          });
+          break;
+      }
+    }
 
-    if (viewMode === 'ligand') {
-      component.addRepresentation('licorice', {
+    if (type === 'ligand' || (type === 'complex' && viewMode !== 'receptor')) {
+      const ligandSelection = type === 'complex' ? 'hetero and not water' : 'all';
+      
+      component.addRepresentation('ball+stick', {
         sele: ligandSelection,
-        color: affinityColor.ligandSecondary,
-        opacity: 0.7
+        color: 'element',
+        radiusScale: 0.8
       });
     }
   };
@@ -343,6 +404,26 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
       </CardHeader>
       <CardContent className="space-y-4">
         
+        {/* Processing Steps Display */}
+        {processingSteps.length > 0 && (
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              Visualization Processing Steps:
+            </h4>
+            <div className="space-y-1">
+              {processingSteps.map((step, index) => (
+                <div key={index} className="text-sm text-blue-700 flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-blue-200 text-xs flex items-center justify-center">
+                    {index + 1}
+                  </span>
+                  {step}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {/* Controls */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -361,16 +442,16 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
           </div>
           
           <div className="space-y-2">
-            <label className="text-sm font-medium">Protein Style</label>
+            <label className="text-sm font-medium">Representation Style</label>
             <Select value={representationStyle} onValueChange={setRepresentationStyle}>
               <SelectTrigger className="h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="optimal">Optimal (Recommended)</SelectItem>
                 <SelectItem value="cartoon">Cartoon</SelectItem>
                 <SelectItem value="surface">Surface</SelectItem>
-                <SelectItem value="ribbon">Ribbon</SelectItem>
-                <SelectItem value="backbone">Backbone</SelectItem>
+                <SelectItem value="licorice">Licorice</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -406,72 +487,47 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
           )}
         </div>
 
-        {/* Binding Affinity Based Color Guide */}
+        {/* Visualization Instructions */}
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
           <h4 className="font-semibold mb-3">
-            Binding Affinity Visualization ({bindingAffinity.toFixed(2)} pKd - {interpretation.strength} Binding)
+            Professional Docking Visualization Process
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
-              <h5 className="font-medium text-gray-700">Current Structure Colors:</h5>
+              <h5 className="font-medium text-gray-700">Step-by-Step Process:</h5>
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded" 
-                    style={{ backgroundColor: getAffinityBasedColor(bindingAffinity).protein }}
-                  ></div>
-                  <span><strong>Protein Receptor:</strong> Color intensity reflects binding strength</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded" 
-                    style={{ backgroundColor: getAffinityBasedColor(bindingAffinity).ligand }}
-                  ></div>
-                  <span><strong>Ligand Molecule:</strong> Shows the binding compound</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded" 
-                    style={{ backgroundColor: getAffinityBasedColor(bindingAffinity).bindingSite }}
-                  ></div>
-                  <span><strong>Binding Site:</strong> Active binding region</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-purple-500 rounded"></div>
-                  <span><strong>Alpha Helices:</strong> Secondary structure elements</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-orange-500 rounded"></div>
-                  <span><strong>Beta Sheets:</strong> Secondary structure elements</span>
-                </div>
+                <div><strong>1.</strong> Convert .pdbqt files to .pdb format</div>
+                <div><strong>2.</strong> Merge receptor.pdb + ligand_docked.pdb → complex.pdb</div>
+                <div><strong>3.</strong> Load merged complex in NGL viewer</div>
+                <div><strong>4.</strong> Apply optimal representations for clarity</div>
               </div>
             </div>
             
             <div className="space-y-2">
-              <h5 className="font-medium text-gray-700">Affinity Color Scale:</h5>
+              <h5 className="font-medium text-gray-700">Optimal Representations:</h5>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-blue-800 rounded"></div>
-                  <span><strong>Deep Colors:</strong> Strong binding (≥7.0 pKd, nanomolar)</span>
+                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                  <span>Protein: Cartoon representation</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                  <span><strong>Medium Colors:</strong> Moderate binding (5.0-7.0 pKd, micromolar)</span>
+                  <div className="w-3 h-3 bg-red-500 rounded"></div>
+                  <span>Ligand: Ball+stick with element colors</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-blue-300 rounded"></div>
-                  <span><strong>Light Colors:</strong> Weak binding (&lt;5.0 pKd, millimolar)</span>
+                  <div className="w-3 h-3 bg-green-500 rounded"></div>
+                  <span>Binding Site: Surface (low opacity)</span>
                 </div>
               </div>
             </div>
           </div>
           
           <div className="mt-4 pt-3 border-t border-gray-300">
-            <h5 className="font-medium mb-2">Binding Analysis:</h5>
+            <h5 className="font-medium mb-2">Current Analysis:</h5>
             <p className="text-sm text-gray-600">
-              <strong>Current Prediction:</strong> {bindingAffinity.toFixed(2)} pKd indicates {interpretation.description} 
-              in the {interpretation.range} range. The visualization colors reflect this binding strength, 
-              with deeper colors indicating stronger molecular interactions between the receptor and ligand.
+              <strong>Binding Affinity:</strong> {bindingAffinity.toFixed(2)} pKd ({interpretation.description})
+              <br />
+              <strong>Visualization:</strong> Using docked ligand pose merged with receptor structure for accurate binding site representation.
             </p>
           </div>
         </div>
@@ -479,8 +535,8 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
         {/* Status and Info */}
         <div className="flex gap-2 text-xs flex-wrap">
           <Badge variant="outline">NGL Viewer</Badge>
-          <Badge variant="secondary">Affinity-Based Coloring</Badge>
-          <Badge variant="default">Interactive 3D</Badge>
+          <Badge variant="secondary">Merged Complex</Badge>
+          <Badge variant="default">Docked Pose</Badge>
           <Badge variant={interpretation.strength === "Strong" ? "default" : interpretation.strength === "Moderate" ? "secondary" : "outline"}>
             {interpretation.strength} Binding
           </Badge>
