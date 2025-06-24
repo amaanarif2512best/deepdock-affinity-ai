@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, RefreshCw, Molecule } from "lucide-react";
+import { Download, RefreshCw, Atom } from "lucide-react";
 import { getPubChemId } from "@/utils/dockingUtils";
 
 interface EnhancedMoleculeViewer2DProps {
@@ -458,7 +458,7 @@ const EnhancedMoleculeViewer2D: React.FC<EnhancedMoleculeViewer2DProps> = ({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-2">
-            <Molecule className="h-4 w-4" />
+            <Atom className="h-4 w-4" />
             Enhanced 2D Structure
           </CardTitle>
           <div className="flex gap-2">
