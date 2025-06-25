@@ -1,3 +1,4 @@
+
 export interface DeepLearningPrediction {
   affinityScore: number;
   confidence: number;
@@ -291,7 +292,7 @@ const calculateAdvancedSimilarity = (
     
     // Structural fingerprint similarity (deterministic)
     const structuralHash = createDeterministicHash(ligandSmiles + entry.ligand);
-    const structuralSimilarity = 0.5 + 0.5 * Math.sin(structuralHash % 1000 / 1000 * Math.PI);
+    const structuralSimilarity = 0.5 + 0.5 * Math.sin((parseInt(structuralHash, 16) % 1000) / 1000 * Math.PI);
     
     const totalSimilarity = (
       mwSimilarity * 0.25 + 
@@ -730,8 +731,8 @@ export const prepareLigandPDBQT = async (smiles: string): Promise<string> => {
   if (ligandDescriptors.mw > 300) atoms.push('O', 'N');
   
   atoms.forEach((atom, index) => {
-    const x = Math.cos(index * 1.2 + hash % 100) * 2;
-    const y = Math.sin(index * 1.2 + hash % 100) * 2;
+    const x = Math.cos(index * 1.2 + (parseInt(hash, 16) % 100)) * 2;
+    const y = Math.sin(index * 1.2 + (parseInt(hash, 16) % 100)) * 2;
     const z = index * 0.4 - atoms.length * 0.2;
     
     pdbqt += `ATOM  ${(index + 1).toString().padStart(5)} ${atom.padEnd(4)} LIG A   1    `;
