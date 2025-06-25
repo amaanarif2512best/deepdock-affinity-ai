@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -274,8 +275,10 @@ For more information, visit our documentation.
               </Card>
             ) : (
               <BatchLigandInput 
-                ligands={batchLigands}
-                onLigandsChange={setBatchLigands}
+                receptorType=""
+                customFasta={customFasta}
+                customPdbData={customPdbId ? `PDB_ID:${customPdbId}` : undefined}
+                pdbId={customPdbId}
               />
             )}
           </TabsContent>
