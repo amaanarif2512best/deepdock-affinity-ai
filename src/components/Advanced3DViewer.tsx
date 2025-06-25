@@ -85,43 +85,38 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
         
         const components = [];
         
-        // Step 1: Check for complex file first (merged receptor + ligand)
-        if (complexPdb) {
-          addProcessingStep('Loading merged complex structure (receptor + docked ligand)...');
-          const comp = await loadComplexStructure(stage, complexPdb);
-          components.push({ component: comp, type: 'complex' });
-        } else if (receptorPdb && ligandPdb) {
-          // Step 2: Create complex from separate files
-          addProcessingStep('Converting and merging receptor and ligand files...');
+        // Always merge ligand and receptor for visualization
+        if (receptorPdb && ligandPdb) {
+          addProcessingStep('Merging receptor and ligand PDB files...');
           const mergedPdb = createMergedComplex(receptorPdb, ligandPdb);
           const comp = await loadComplexStructure(stage, mergedPdb);
           components.push({ component: comp, type: 'complex' });
-        } else {
-          // Fallback: Load individual structures
-          if (receptorPdb) {
-            addProcessingStep('Loading receptor structure...');
-            const comp = await loadReceptorStructure(stage, receptorPdb);
-            components.push({ component: comp, type: 'receptor' });
-          }
-          if (ligandPdb) {
-            addProcessingStep('Loading docked ligand pose...');
-            const comp = await loadLigandStructure(stage, ligandPdb);
-            components.push({ component: comp, type: 'ligand' });
-          }
+        } else if (complexPdb) {
+          addProcessingStep('Loading provided complex structure...');
+          const comp = await loadComplexStructure(stage, complexPdb);
+          components.push({ component: comp, type: 'complex' });
+        } else if (receptorPdb) {
+          addProcessingStep('Loading receptor structure only...');
+          const comp = await loadReceptorStructure(stage, receptorPdb);
+          components.push({ component: comp, type: 'receptor' });
+        } else if (ligandPdb) {
+          addProcessingStep('Loading ligand structure only...');
+          const comp = await loadLigandStructure(stage, ligandPdb);
+          components.push({ component: comp, type: 'ligand' });
         }
 
         if (components.length === 0) {
-          throw new Error('No valid molecular structures provided');
+          throw new Error('No molecular structures provided');
         }
 
-        addProcessingStep('Applying optimal visualization representations...');
+        addProcessingStep('Applying 3D visualization based on binding affinity...');
         setCurrentComponents(components);
         setViewer(stage);
         setIsLoading(false);
         
         setTimeout(() => {
           stage.autoView();
-          addProcessingStep('Visualization complete!');
+          addProcessingStep('3D visualization complete!');
         }, 100);
       }
     } catch (err) {
@@ -131,9 +126,9 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
     }
   };
 
-  // Step 1: Create merged complex from separate receptor and ligand files
+  // Create merged complex from separate receptor and ligand files
   const createMergedComplex = (receptorData: string, ligandData: string): string => {
-    addProcessingStep('Merging receptor.pdb + ligand_docked.pdb → complex.pdb');
+    addProcessingStep('Merging receptor.pdb + ligand.pdb → merged_complex.pdb');
     
     // Clean and format receptor data
     const cleanReceptor = receptorData
@@ -141,16 +136,16 @@ const Advanced3DViewer: React.FC<Advanced3DViewerProps> = ({
       .filter(line => line.startsWith('ATOM') || line.startsWith('HETATM'))
       .join('\n');
     
-    // Clean and format ligand data (docked pose)
+    // Clean and format ligand data
     const cleanLigand = ligandData
       .split('\n')
       .filter(line => line.startsWith('ATOM') || line.startsWith('HETATM'))
       .join('\n');
     
-    // Merge with proper headers
-    const mergedComplex = `HEADER    MERGED PROTEIN-LIGAND COMPLEX
-REMARK   1 RECEPTOR AND DOCKED LIGAND MERGED FOR VISUALIZATION
-REMARK   2 GENERATED FROM AUTODOCK VINA DOCKING OUTPUT
+    // Merge with proper headers for 3D visualization
+    const mergedComplex = `HEADER    MERGED PROTEIN-LIGAND COMPLEX FOR VISUALIZATION
+REMARK   1 RECEPTOR AND LIGAND MERGED FOR 3D BINDING ANALYSIS
+REMARK   2 BINDING AFFINITY: ${bindingAffinity.toFixed(2)} pKd
 ${cleanReceptor}
 TER
 ${cleanLigand}
@@ -190,7 +185,6 @@ END
     return ligand;
   };
 
-  // Step 3: Apply optimal representation styles
   const updateVisualization = () => {
     if (!viewer || currentComponents.length === 0) return;
 
@@ -208,7 +202,6 @@ END
       
       if (shouldShow) {
         if (representationStyle === 'optimal') {
-          // Step 4: Optimal representation for binding clarity
           applyOptimalRepresentation(component, type);
         } else {
           applyCustomRepresentation(component, type, representationStyle);
@@ -221,7 +214,6 @@ END
     }, 100);
   };
 
-  // Bonus: Optimal representation for binding clarity
   const applyOptimalRepresentation = (component: any, type: string) => {
     const affinityColor = getAffinityBasedColor(bindingAffinity);
     
@@ -240,14 +232,14 @@ END
         radiusScale: 0.8
       });
       
-      // Protein surface for binding site (low opacity)
+      // Protein surface for binding context (low opacity)
       component.addRepresentation('surface', {
         sele: 'protein',
         opacity: 0.2,
         color: affinityColor.bindingSite
       });
       
-      // Highlight binding site residues
+      // Highlight potential binding interactions
       component.addRepresentation('licorice', {
         sele: 'protein and within 4 of hetero',
         color: affinityColor.bindingSite,
@@ -390,7 +382,7 @@ END
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-purple-800 flex items-center gap-2">
             <Eye className="h-5 w-5" />
-            Professional 3D Molecular Visualization
+            3D Molecular Visualization & Binding Analysis
           </CardTitle>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={resetView} disabled={isLoading || !!error}>
@@ -409,7 +401,7 @@ END
           <div className="bg-blue-50 p-3 rounded-lg">
             <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
               <AlertCircle className="h-4 w-4" />
-              Visualization Processing Steps:
+              3D Visualization Process:
             </h4>
             <div className="space-y-1">
               {processingSteps.map((step, index) => (
@@ -487,28 +479,28 @@ END
           )}
         </div>
 
-        {/* Visualization Instructions */}
+        {/* Visualization Analysis */}
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
           <h4 className="font-semibold mb-3">
-            Professional Docking Visualization Process
+            3D Molecular Structure & Binding Analysis
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
-              <h5 className="font-medium text-gray-700">Step-by-Step Process:</h5>
+              <h5 className="font-medium text-gray-700">Visualization Features:</h5>
               <div className="space-y-1">
-                <div><strong>1.</strong> Convert .pdbqt files to .pdb format</div>
-                <div><strong>2.</strong> Merge receptor.pdb + ligand_docked.pdb → complex.pdb</div>
-                <div><strong>3.</strong> Load merged complex in NGL viewer</div>
-                <div><strong>4.</strong> Apply optimal representations for clarity</div>
+                <div><strong>•</strong> Interactive 3D molecular structures</div>
+                <div><strong>•</strong> Merged receptor-ligand complex view</div>
+                <div><strong>•</strong> Binding affinity-based color coding</div>
+                <div><strong>•</strong> Multiple representation styles</div>
               </div>
             </div>
             
             <div className="space-y-2">
-              <h5 className="font-medium text-gray-700">Optimal Representations:</h5>
+              <h5 className="font-medium text-gray-700">Current Analysis:</h5>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-blue-500 rounded"></div>
-                  <span>Protein: Cartoon representation</span>
+                  <span>Protein: Cartoon/Surface representation</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-red-500 rounded"></div>
@@ -516,18 +508,18 @@ END
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-green-500 rounded"></div>
-                  <span>Binding Site: Surface (low opacity)</span>
+                  <span>Binding: Surface interactions highlighted</span>
                 </div>
               </div>
             </div>
           </div>
           
           <div className="mt-4 pt-3 border-t border-gray-300">
-            <h5 className="font-medium mb-2">Current Analysis:</h5>
+            <h5 className="font-medium mb-2">Binding Analysis Results:</h5>
             <p className="text-sm text-gray-600">
-              <strong>Binding Affinity:</strong> {bindingAffinity.toFixed(2)} pKd ({interpretation.description})
+              <strong>Predicted Binding Affinity:</strong> {bindingAffinity.toFixed(2)} pKd ({interpretation.description})
               <br />
-              <strong>Visualization:</strong> Using docked ligand pose merged with receptor structure for accurate binding site representation.
+              <strong>3D Visualization:</strong> Shows merged protein-ligand complex with binding affinity-based coloring and optimal representations for molecular analysis.
             </p>
           </div>
         </div>
@@ -536,7 +528,7 @@ END
         <div className="flex gap-2 text-xs flex-wrap">
           <Badge variant="outline">NGL Viewer</Badge>
           <Badge variant="secondary">Merged Complex</Badge>
-          <Badge variant="default">Docked Pose</Badge>
+          <Badge variant="default">3D Interactive</Badge>
           <Badge variant={interpretation.strength === "Strong" ? "default" : interpretation.strength === "Moderate" ? "secondary" : "outline"}>
             {interpretation.strength} Binding
           </Badge>
